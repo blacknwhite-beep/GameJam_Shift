@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "unreal-mcp": {
+      "type": "http",
+      "url": "http://localhost:25419/mcp/p/c8d0cb9f"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+# Added by unreal-mcp-cli configure — never commit local MCP secrets.
+.env
+
+# Unreal Engine build output and caches (regenerated on open)
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+.vs/
+*.sln.DotSettings.user
