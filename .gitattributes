@@ -1,0 +1,21 @@
+# Text files: store as LF in git, check out with the platform's line endings
+* text=auto
+# Unreal assets and other binaries: never convert
+*.uasset binary
+*.umap binary
+*.uexp binary
+*.ubulk binary
+*.uplugin text
+*.wav binary
+*.png binary
+*.jpg binary
+*.tga binary
+*.psd binary
+*.fbx binary
+*.ogg binary
+*.mp3 binary
+*.ttf binary
+*.dll binary
+*.exe binary
+*.dmp binary
+*.zip binary
