@@ -32,7 +32,10 @@ public class GameJam_Shift_2026 : ModuleRules
 			"GameJam_Shift_2026/Variant_Shooter/AI",
 			"GameJam_Shift_2026/Variant_Shooter/UI",
 			"GameJam_Shift_2026/Variant_Shooter/Weapons",
-			"GameJam_Shift_2026/Variant_Shooter/Inventory"
+			"GameJam_Shift_2026/Variant_Shooter/Inventory",
+			"GameJam_Shift_2026/Dimension",
+			"GameJam_Shift_2026/Farming",
+			"GameJam_Shift_2026/InterWorld"
 		});
 	}
 }

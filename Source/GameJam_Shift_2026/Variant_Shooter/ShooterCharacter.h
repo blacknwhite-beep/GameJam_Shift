@@ -5,12 +5,15 @@
 #include "CoreMinimal.h"
 #include "GameJam_Shift_2026Character.h"
 #include "ShooterWeaponHolder.h"
+#include "DimensionTypes.h"
 #include "ShooterCharacter.generated.h"
 
 class AShooterWeapon;
 class UInputAction;
+class UInputMappingContext;
 class UInputComponent;
 class UPawnNoiseEmitterComponent;
+class UFarmingComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
@@ -47,6 +50,26 @@ protected:
 	UPROPERTY(EditAnywhere, Category ="Input")
 	UInputAction* SwitchWeaponAction;
 
+	/** Dimension shift input action (Shift key) */
+	UPROPERTY(EditAnywhere, Category = "Input|Dimension")
+	UInputAction* DimensionShiftAction;
+
+	/** Input mapping context applied when in the Farming dimension */
+	UPROPERTY(EditAnywhere, Category = "Input|Dimension")
+	UInputMappingContext* FarmingMappingContext;
+
+	/** Input mapping context for weapons (removed in Farming, restored in Combat) */
+	UPROPERTY(EditAnywhere, Category = "Input|Dimension")
+	UInputMappingContext* WeaponMappingContext;
+
+	/** Priority used when adding FarmingMappingContext */
+	UPROPERTY(EditAnywhere, Category = "Input|Dimension")
+	int32 FarmingMappingPriority = 1;
+
+	/** The currently active dimension of the character */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Dimension")
+	EGameDimension CurrentDimension = EGameDimension::Combat;
+
 	/** Initial weapon class to spawn and equip on spawn */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Weapons")
 	TSubclassOf<AShooterWeapon> InitialWeaponClass;
@@ -54,6 +77,10 @@ protected:
 	/** Tarkov-style Grid Inventory Component */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Inventory", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UTarkovInventoryComponent> TarkovInventory;
+
+	/** Farming Component managing tools, seeds, and soil plots */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Farming", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UFarmingComponent> FarmingComponent;
 
 	/** Name of the first person mesh weapon socket */
 	UPROPERTY(EditAnywhere, Category ="Weapons")
@@ -155,6 +182,18 @@ public:
 	/** Handles toggle inventory input */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoToggleInventory();
+
+	/** Handles dimension shift input (Shift key) */
+	UFUNCTION(BlueprintCallable, Category = "Input|Dimension")
+	void HandleDimensionShift();
+
+	/** Responds to dimension shift events (e.g. swapping input contexts and weapons) */
+	UFUNCTION()
+	void HandleOnDimensionShifted(EGameDimension NewDimension, FVector TargetLocation);
+
+	/** Returns the farming component */
+	UFUNCTION(BlueprintCallable, Category = "Farming")
+	UFarmingComponent* GetFarmingComponent() const { return FarmingComponent; }
 
 public:
 

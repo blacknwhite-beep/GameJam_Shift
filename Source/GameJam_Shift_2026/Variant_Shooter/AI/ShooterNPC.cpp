@@ -21,7 +21,7 @@ namespace
 	 *  Plays a montage on the given mesh if its skeleton matches the montage's skeleton.
 	 *  Prevents engine warnings when a montage is played on an incompatible rig
 	 */
-	void TryPlayMontage(USkeletalMeshComponent* MeshComponent, UAnimMontage* Montage)
+	void TryPlayNPCMontage(USkeletalMeshComponent* MeshComponent, UAnimMontage* Montage)
 	{
 		if (!MeshComponent || !Montage)
 		{
@@ -103,10 +103,10 @@ void AShooterNPC::PlayFiringMontage(UAnimMontage* Montage)
 void AShooterNPC::PlayReloadMontage(UAnimMontage* Montage)
 {
 	// play on the first person mesh
-	TryPlayMontage(GetFirstPersonMesh(), Montage);
+	TryPlayNPCMontage(GetFirstPersonMesh(), Montage);
 
 	// play on the third person mesh
-	TryPlayMontage(GetMesh(), Montage);
+	TryPlayNPCMontage(GetMesh(), Montage);
 }
 
 void AShooterNPC::AddWeaponRecoil(float Recoil)

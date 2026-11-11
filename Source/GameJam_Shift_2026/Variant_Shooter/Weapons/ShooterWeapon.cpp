@@ -97,6 +97,12 @@ void AShooterWeapon::DeactivateWeapon()
 
 void AShooterWeapon::StartFiring()
 {
+	// weapons can't fire while hidden or deactivated
+	if (IsHidden())
+	{
+		return;
+	}
+
 	// raise the firing flag
 	bIsFiring = true;
 
@@ -239,6 +245,12 @@ bool AShooterWeapon::IsReloading() const
 
 void AShooterWeapon::Fire()
 {
+	// weapons can't fire while hidden or deactivated
+	if (IsHidden())
+	{
+		return;
+	}
+
 	// ensure the player still wants to fire. They may have let go of the trigger
 	if (!bIsFiring)
 	{

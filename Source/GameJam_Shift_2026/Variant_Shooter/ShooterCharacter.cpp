@@ -4,7 +4,12 @@
 #include "ShooterCharacter.h"
 #include "ShooterWeapon.h"
 #include "Inventory/TarkovInventoryComponent.h"
+#include "DimensionShiftSubsystem.h"
+#include "FarmingComponent.h"
+#include "GameJam_Shift_2026.h"
 #include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputMappingContext.h"
 #include "Components/InputComponent.h"
 #include "Components/PawnNoiseEmitterComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -24,7 +29,7 @@ namespace
 	 *  Prevents engine warnings when a montage is played on an incompatible rig
 	 *  (e.g. a mannequin montage played on first person arms with a different skeleton)
 	 */
-	void TryPlayMontage(USkeletalMeshComponent* MeshComponent, UAnimMontage* Montage)
+	void TryPlayCharacterMontage(USkeletalMeshComponent* MeshComponent, UAnimMontage* Montage)
 	{
 		if (!MeshComponent || !Montage)
 		{
@@ -53,6 +58,16 @@ AShooterCharacter::AShooterCharacter()
 	// create the Tarkov inventory component
 	TarkovInventory = CreateDefaultSubobject<UTarkovInventoryComponent>(TEXT("TarkovInventory"));
 
+	// create the Farming component
+	FarmingComponent = CreateDefaultSubobject<UFarmingComponent>(TEXT("FarmingComponent"));
+
+	// default weapon input mapping context
+	static ConstructorHelpers::FObjectFinder<UInputMappingContext> WeaponContextFinder(TEXT("/Game/Variant_Shooter/Input/IMC_Weapons.IMC_Weapons"));
+	if (WeaponContextFinder.Succeeded())
+	{
+		WeaponMappingContext = WeaponContextFinder.Object;
+	}
+
 	// configure movement
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 600.0f, 0.0f);
 }
@@ -72,14 +87,32 @@ void AShooterCharacter::BeginPlay()
 	{
 		AddWeaponClass(InitialWeaponClass);
 	}
+
+	// Register with DimensionShiftSubsystem
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Subsystem = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Subsystem->OnDimensionShifted.AddDynamic(this, &AShooterCharacter::HandleOnDimensionShifted);
+		}
+	}
 }
 
 void AShooterCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
 {
-	Super::EndPlay(EndPlayReason);
+	// Unregister from DimensionShiftSubsystem
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Subsystem = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Subsystem->OnDimensionShifted.RemoveDynamic(this, &AShooterCharacter::HandleOnDimensionShifted);
+		}
+	}
 
 	// clear the respawn timer
 	GetWorld()->GetTimerManager().ClearTimer(RespawnTimer);
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -105,7 +138,16 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		{
 			EnhancedInputComponent->BindAction(ToggleInventoryAction, ETriggerEvent::Started, this, &AShooterCharacter::DoToggleInventory);
 		}
+
+		// Dimension Shift (Shift key)
+		if (DimensionShiftAction)
+		{
+			EnhancedInputComponent->BindAction(DimensionShiftAction, ETriggerEvent::Triggered, this, &AShooterCharacter::HandleDimensionShift);
+		}
 	}
+
+	// Direct key fallback: guarantees Left Shift ALWAYS triggers even if the Enhanced Input asset is unassigned!
+	PlayerInputComponent->BindKey(EKeys::LeftShift, IE_Pressed, this, &AShooterCharacter::HandleDimensionShift);
 
 }
 
@@ -170,6 +212,12 @@ void AShooterCharacter::DoJumpEnd()
 
 void AShooterCharacter::DoStartFiring()
 {
+	// cannot fire weapon in Farming dimension
+	if (CurrentDimension == EGameDimension::Farming)
+	{
+		return;
+	}
+
 	// fire the current weapon
 	if (CurrentWeapon && !IsDead())
 	{
@@ -179,6 +227,11 @@ void AShooterCharacter::DoStartFiring()
 
 void AShooterCharacter::DoStopFiring()
 {
+	if (CurrentDimension == EGameDimension::Farming)
+	{
+		return;
+	}
+
 	// stop firing the current weapon
 	if (CurrentWeapon && !IsDead())
 	{
@@ -188,6 +241,11 @@ void AShooterCharacter::DoStopFiring()
 
 void AShooterCharacter::DoSwitchWeapon()
 {
+	if (CurrentDimension == EGameDimension::Farming)
+	{
+		return;
+	}
+
 	// ensure we have at least two weapons two switch between
 	if (OwnedWeapons.Num() > 1 && !IsDead())
 	{
@@ -218,6 +276,11 @@ void AShooterCharacter::DoSwitchWeapon()
 
 void AShooterCharacter::DoReload()
 {
+	if (CurrentDimension == EGameDimension::Farming)
+	{
+		return;
+	}
+
 	// Do not reload weapon while inventory overlay is open
 	if (TarkovInventory && TarkovInventory->IsInventoryOpen())
 	{
@@ -236,6 +299,148 @@ void AShooterCharacter::DoToggleInventory()
 	if (TarkovInventory && !IsDead())
 	{
 		TarkovInventory->ToggleInventory();
+	}
+}
+
+void AShooterCharacter::HandleDimensionShift()
+{
+	if (IsDead())
+	{
+		return;
+	}
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan, TEXT(">>> [INPUT] Left Shift Pressed! Requesting Dimension Shift..."));
+	}
+
+	// Close inventory overlay if open before shifting
+	if (TarkovInventory && TarkovInventory->IsInventoryOpen())
+	{
+		TarkovInventory->ToggleInventory();
+	}
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Subsystem = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Subsystem->RequestShift(this);
+		}
+	}
+}
+
+void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FVector TargetLocation)
+{
+	CurrentDimension = NewDimension;
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer());
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	// Make sure WeaponMappingContext is cached
+	if (!WeaponMappingContext)
+	{
+		WeaponMappingContext = LoadObject<UInputMappingContext>(nullptr, TEXT("/Game/Variant_Shooter/Input/IMC_Weapons.IMC_Weapons"));
+	}
+
+	if (NewDimension == EGameDimension::Farming)
+	{
+		// Entering Farming dimension: remove weapon mapping context so clicks don't trigger fire actions
+		if (WeaponMappingContext)
+		{
+			Subsystem->RemoveMappingContext(WeaponMappingContext);
+		}
+
+		// Apply farming input mapping context
+		if (FarmingMappingContext)
+		{
+			Subsystem->AddMappingContext(FarmingMappingContext, FarmingMappingPriority);
+		}
+
+		// Holster weapon while in farming dimension (keep weapon actor valid so animation blueprints don't error)
+		if (CurrentWeapon)
+		{
+			CurrentWeapon->DeactivateWeapon();
+			if (CurrentWeapon->GetFirstPersonMesh())
+			{
+				CurrentWeapon->GetFirstPersonMesh()->SetVisibility(false, true);
+			}
+			if (CurrentWeapon->GetThirdPersonMesh())
+			{
+				CurrentWeapon->GetThirdPersonMesh()->SetVisibility(false, true);
+			}
+		}
+
+		// Clear character weapon anim instances so ABP_FP_Pistol does not tick on inactive weapon
+		if (GetFirstPersonMesh())
+		{
+			GetFirstPersonMesh()->SetVisibility(false, true);
+			GetFirstPersonMesh()->SetAnimInstanceClass(nullptr);
+		}
+		if (GetMesh())
+		{
+			GetMesh()->SetAnimInstanceClass(nullptr);
+		}
+
+		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("ShooterCharacter: Swapped to Farming input context."));
+	}
+	else
+	{
+		// Returning to Combat dimension: remove farming input context
+		if (FarmingMappingContext)
+		{
+			Subsystem->RemoveMappingContext(FarmingMappingContext);
+		}
+
+		// Restore weapon mapping context
+		if (WeaponMappingContext)
+		{
+			Subsystem->AddMappingContext(WeaponMappingContext, 0);
+		}
+
+		// Restore first person mesh visibility
+		if (GetFirstPersonMesh())
+		{
+			GetFirstPersonMesh()->SetVisibility(true, true);
+		}
+
+		// Unholster and reactivate weapon when returning to combat
+		if (CurrentWeapon)
+		{
+			if (CurrentWeapon->GetFirstPersonMesh())
+			{
+				CurrentWeapon->GetFirstPersonMesh()->SetVisibility(true, true);
+			}
+			if (CurrentWeapon->GetThirdPersonMesh())
+			{
+				CurrentWeapon->GetThirdPersonMesh()->SetVisibility(true, true);
+			}
+			CurrentWeapon->ActivateWeapon();
+
+			// Restore character mesh AnimInstances
+			if (GetFirstPersonMesh())
+			{
+				GetFirstPersonMesh()->SetAnimInstanceClass(CurrentWeapon->GetFirstPersonAnimInstanceClass());
+			}
+			if (GetMesh())
+			{
+				GetMesh()->SetAnimInstanceClass(CurrentWeapon->GetThirdPersonAnimInstanceClass());
+			}
+		}
+		else if (InitialWeaponClass)
+		{
+			EquipWeaponClass(InitialWeaponClass);
+		}
+
+		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("ShooterCharacter: Swapped to Combat input context."));
 	}
 }
 
@@ -291,19 +496,19 @@ void AShooterCharacter::AttachWeaponMeshes(AShooterWeapon* Weapon)
 void AShooterCharacter::PlayFiringMontage(UAnimMontage* Montage)
 {
 	// play on the first person mesh
-	TryPlayMontage(GetFirstPersonMesh(), Montage);
+	TryPlayCharacterMontage(GetFirstPersonMesh(), Montage);
 
 	// play on the third person mesh so other players see the shot
-	TryPlayMontage(GetMesh(), Montage);
+	TryPlayCharacterMontage(GetMesh(), Montage);
 }
 
 void AShooterCharacter::PlayReloadMontage(UAnimMontage* Montage)
 {
 	// play on the first person mesh
-	TryPlayMontage(GetFirstPersonMesh(), Montage);
+	TryPlayCharacterMontage(GetFirstPersonMesh(), Montage);
 
 	// play on the third person mesh so other players see the reload
-	TryPlayMontage(GetMesh(), Montage);
+	TryPlayCharacterMontage(GetMesh(), Montage);
 }
 
 void AShooterCharacter::AddWeaponRecoil(float Recoil)
@@ -406,6 +611,16 @@ AShooterWeapon* AShooterCharacter::FindWeaponOfType(TSubclassOf<AShooterWeapon> 
 
 void AShooterCharacter::Die()
 {
+	// clear anim instances before unpossession to avoid ABP_FP_Pistol Accessed None errors
+	if (GetFirstPersonMesh())
+	{
+		GetFirstPersonMesh()->SetAnimInstanceClass(nullptr);
+	}
+	if (GetMesh())
+	{
+		GetMesh()->SetAnimInstanceClass(nullptr);
+	}
+
 	// deactivate the weapon
 	if (IsValid(CurrentWeapon))
 	{

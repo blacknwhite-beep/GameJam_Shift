@@ -8,3 +8,8 @@ Saved/
 DerivedDataCache/
 .vs/
 *.sln.DotSettings.user
+
+# Visual Studio / VSCode IDE files
+.vscode/
+*.code-workspace
+.ignore
