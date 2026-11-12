@@ -24,6 +24,8 @@ AFarmPlotBase::AFarmPlotBase()
 	SoilMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SoilMesh"));
 	SoilMesh->SetupAttachment(RootComponent);
 	SoilMesh->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
+	SoilMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	SoilMesh->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
 
 	CropMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CropMesh"));
 	CropMesh->SetupAttachment(RootComponent);
@@ -32,19 +34,84 @@ AFarmPlotBase::AFarmPlotBase()
 
 	InteractionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("InteractionBox"));
 	InteractionBox->SetupAttachment(RootComponent);
-	InteractionBox->SetBoxExtent(FVector(60.0f, 60.0f, 50.0f));
+	InteractionBox->SetBoxExtent(FVector(80.0f, 80.0f, 60.0f));
 	InteractionBox->SetRelativeLocation(FVector(0.0f, 0.0f, 50.0f));
-	InteractionBox->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
+	InteractionBox->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
+	InteractionBox->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	InteractionBox->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
 }
 
 void AFarmPlotBase::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// If no mesh was assigned in Blueprint, assign a basic shape so plots are visually discernible in prototype
+	if (SoilMesh && SoilMesh->GetStaticMesh() == nullptr)
+	{
+		if (UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
+		{
+			SoilMesh->SetStaticMesh(CubeMesh);
+			SoilMesh->SetRelativeScale3D(FVector(1.2f, 1.2f, 0.15f));
+			SoilMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 7.5f));
+		}
+	}
+
+	if (CropMesh && CropMesh->GetStaticMesh() == nullptr)
+	{
+		if (UStaticMesh* CylinderMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder")))
+		{
+			CropMesh->SetStaticMesh(CylinderMesh);
+			CropMesh->SetRelativeScale3D(FVector(0.2f, 0.2f, 0.4f));
+			CropMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 25.0f));
+		}
+	}
+
+	UpdateCropMeshForStage(CurrentStage);
+
 	// If spawned in-level with a pre-configured stage, trigger initial Blueprint event
 	if (CurrentStage != ECropStage::Empty)
 	{
 		OnStageChanged(CurrentStage);
+	}
+}
+
+void AFarmPlotBase::UpdateCropMeshForStage(ECropStage Stage)
+{
+	if (!CropMesh)
+	{
+		return;
+	}
+
+	switch (Stage)
+	{
+	case ECropStage::Empty:
+		CropMesh->SetVisibility(false);
+		break;
+	case ECropStage::Planted:
+		CropMesh->SetVisibility(true);
+		CropMesh->SetRelativeScale3D(FVector(0.15f, 0.15f, 0.1f));
+		CropMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 12.0f));
+		break;
+	case ECropStage::Sprout:
+		CropMesh->SetVisibility(true);
+		CropMesh->SetRelativeScale3D(FVector(0.25f, 0.25f, 0.35f));
+		CropMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 22.0f));
+		break;
+	case ECropStage::Growing:
+		CropMesh->SetVisibility(true);
+		CropMesh->SetRelativeScale3D(FVector(0.35f, 0.35f, 0.65f));
+		CropMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 35.0f));
+		break;
+	case ECropStage::Mature:
+		CropMesh->SetVisibility(true);
+		CropMesh->SetRelativeScale3D(FVector(0.5f, 0.5f, 1.0f));
+		CropMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 55.0f));
+		break;
+	case ECropStage::Withered:
+		CropMesh->SetVisibility(true);
+		CropMesh->SetRelativeScale3D(FVector(0.3f, 0.3f, 0.2f));
+		CropMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 15.0f));
+		break;
 	}
 }
 
@@ -78,6 +145,7 @@ bool AFarmPlotBase::TillPlot()
 		CropMesh->SetVisibility(false);
 	}
 
+	UpdateCropMeshForStage(CurrentStage);
 	OnTilled();
 	OnStageChanged(CurrentStage);
 
@@ -133,11 +201,7 @@ bool AFarmPlotBase::PlantSeed(FName SeedID, float InStageDuration)
 		HarvestYield.Quantity = 5;
 	}
 
-	if (CropMesh)
-	{
-		CropMesh->SetVisibility(true);
-	}
-
+	UpdateCropMeshForStage(CurrentStage);
 	OnPlanted(SeedID);
 	OnStageChanged(CurrentStage);
 
@@ -204,6 +268,7 @@ void AFarmPlotBase::AdvanceGrowthStage()
 		break;
 	}
 
+	UpdateCropMeshForStage(CurrentStage);
 	OnStageChanged(CurrentStage);
 
 	if (GEngine)
@@ -249,6 +314,7 @@ bool AFarmPlotBase::Harvest(FName& OutItemID, int32& OutQuantity)
 	}
 
 	OnHarvested(HarvestedItem, HarvestedCount);
+	UpdateCropMeshForStage(CurrentStage);
 	OnStageChanged(CurrentStage);
 
 	if (GEngine)

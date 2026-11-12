@@ -81,7 +81,7 @@ public:
 	 * Tills or clears an overgrown or harvested plot, preparing it for planting.
 	 * @return True if plot was tilled.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Farming|Action")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Farming|Action")
 	bool TillPlot();
 
 	/**
@@ -97,8 +97,14 @@ public:
 	 * Waters the plot. Required for crops to grow to the next stage.
 	 * @return True if successfully watered, false if already watered or plot is empty/mature.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Farming|Action")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Farming|Action")
 	bool WaterPlot();
+
+	/**
+	 * Advances the crop to the next growth stage immediately (can be called directly or via timer).
+	 */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Farming|Action")
+	void AdvanceGrowthStage();
 
 	/**
 	 * Harvests the mature crop, returning yield items and resetting the plot to Empty.
@@ -106,7 +112,7 @@ public:
 	 * @param OutQuantity Amount of the harvested item yielded.
 	 * @return True if harvest succeeded.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Farming|Action")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Farming|Action")
 	bool Harvest(FName& OutItemID, int32& OutQuantity);
 
 	/** Returns true if this plot is empty and ready for seeds */
@@ -162,8 +168,8 @@ public:
 	void OnHarvested(FName ItemID, int32 Quantity);
 
 protected:
-	/** Timer callback to advance to the next growth stage */
-	void AdvanceGrowthStage();
+	/** Updates internal crop mesh scale and visibility for stage prototyping */
+	virtual void UpdateCropMeshForStage(ECropStage Stage);
 
 	/** Timer handle managing the current growth cycle */
 	FTimerHandle GrowthTimerHandle;

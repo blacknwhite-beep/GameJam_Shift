@@ -149,6 +149,19 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	// Direct key fallback: guarantees Left Shift ALWAYS triggers even if the Enhanced Input asset is unassigned!
 	PlayerInputComponent->BindKey(EKeys::LeftShift, IE_Pressed, this, &AShooterCharacter::HandleDimensionShift);
 
+	// Direct key fallback for Left Mouse Button so clicking triggers DoStartFiring (firing in combat, farm tool in farm)
+	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AShooterCharacter::DoStartFiring);
+	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AShooterCharacter::DoStopFiring);
+
+	// Farming tool selection keybindings (active only when CurrentDimension == EGameDimension::Farming)
+	PlayerInputComponent->BindKey(EKeys::One, IE_Pressed, this, &AShooterCharacter::SelectTool1);
+	PlayerInputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AShooterCharacter::SelectTool2);
+	PlayerInputComponent->BindKey(EKeys::Three, IE_Pressed, this, &AShooterCharacter::SelectTool3);
+	PlayerInputComponent->BindKey(EKeys::Four, IE_Pressed, this, &AShooterCharacter::SelectTool4);
+	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AShooterCharacter::CycleToolPrevious);
+	PlayerInputComponent->BindKey(EKeys::E, IE_Pressed, this, &AShooterCharacter::CycleToolNext);
+	PlayerInputComponent->BindKey(EKeys::T, IE_Pressed, this, &AShooterCharacter::CycleSeedNext);
+
 }
 
 float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -212,9 +225,13 @@ void AShooterCharacter::DoJumpEnd()
 
 void AShooterCharacter::DoStartFiring()
 {
-	// cannot fire weapon in Farming dimension
+	// In Farming dimension, route Left Click to FarmingComponent!
 	if (CurrentDimension == EGameDimension::Farming)
 	{
+		if (FarmingComponent)
+		{
+			FarmingComponent->UseActiveTool();
+		}
 		return;
 	}
 
@@ -243,6 +260,10 @@ void AShooterCharacter::DoSwitchWeapon()
 {
 	if (CurrentDimension == EGameDimension::Farming)
 	{
+		if (FarmingComponent)
+		{
+			FarmingComponent->CycleTool(true);
+		}
 		return;
 	}
 
@@ -388,6 +409,14 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 		if (GetMesh())
 		{
 			GetMesh()->SetAnimInstanceClass(nullptr);
+		}
+
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				9122, 5.0f, FColor::Emerald,
+				TEXT(">>> [FARM WORLD] Left Click: Use Tool | 1-4 or Q/E: Tool | T: Seed | Shift: Combat")
+			);
 		}
 
 		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("ShooterCharacter: Swapped to Farming input context."));
@@ -662,4 +691,60 @@ bool AShooterCharacter::IsDead() const
 {
 	// the character is dead if their current HP drops to zero
 	return CurrentHP <= 0.0f;
+}
+
+void AShooterCharacter::SelectTool1()
+{
+	if (CurrentDimension == EGameDimension::Farming && FarmingComponent)
+	{
+		FarmingComponent->SetActiveTool(EFarmTool::None);
+	}
+}
+
+void AShooterCharacter::SelectTool2()
+{
+	if (CurrentDimension == EGameDimension::Farming && FarmingComponent)
+	{
+		FarmingComponent->SetActiveTool(EFarmTool::Hoe);
+	}
+}
+
+void AShooterCharacter::SelectTool3()
+{
+	if (CurrentDimension == EGameDimension::Farming && FarmingComponent)
+	{
+		FarmingComponent->SetActiveTool(EFarmTool::WateringCan);
+	}
+}
+
+void AShooterCharacter::SelectTool4()
+{
+	if (CurrentDimension == EGameDimension::Farming && FarmingComponent)
+	{
+		FarmingComponent->SetActiveTool(EFarmTool::Harvester);
+	}
+}
+
+void AShooterCharacter::CycleToolNext()
+{
+	if (CurrentDimension == EGameDimension::Farming && FarmingComponent)
+	{
+		FarmingComponent->CycleTool(true);
+	}
+}
+
+void AShooterCharacter::CycleToolPrevious()
+{
+	if (CurrentDimension == EGameDimension::Farming && FarmingComponent)
+	{
+		FarmingComponent->CycleTool(false);
+	}
+}
+
+void AShooterCharacter::CycleSeedNext()
+{
+	if (CurrentDimension == EGameDimension::Farming && FarmingComponent)
+	{
+		FarmingComponent->CycleSeed(true);
+	}
 }

@@ -78,7 +78,7 @@
     - `UFUNCTION(BlueprintImplementableEvent) void OnStageChanged(ECropStage NewStage);`
     - `UFUNCTION(BlueprintImplementableEvent) void OnWatered();`
     - `UFUNCTION(BlueprintImplementableEvent) void OnHarvested();`
-- [ ] **4.3** Create `Source/GameJam_Shift_2026/Farming/FarmingComponent.h & .cpp`:
+- [x] **4.3** Create `Source/GameJam_Shift_2026/Farming/FarmingComponent.h & .cpp`:
   - Inherit from `UActorComponent`.
   - Property: `UPROPERTY(BlueprintReadWrite) EFarmTool ActiveTool;`
   - Function: `UFUNCTION(BlueprintCallable) void UseActiveTool();` (raycasts forward to find `AFarmPlotBase`).

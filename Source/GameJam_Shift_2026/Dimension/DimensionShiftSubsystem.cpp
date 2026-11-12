@@ -12,6 +12,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
 #include "GameFramework/WorldSettings.h"
+#include "Farming/FarmPlotBase.h"
+#include "Kismet/GameplayStatics.h"
 
 UDimensionShiftSubsystem::UDimensionShiftSubsystem()
 	: FarmWorldOffset(0.0f, 0.0f, -20000.0f)
@@ -103,6 +105,30 @@ void UDimensionShiftSubsystem::EnsurePrototypeFarmPlatform(UWorld* World) const
 #endif
 		PrototypeFarmPlatform = Platform;
 		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned 1km x 1km prototype farm platform at Z = -20000 with collision."));
+	}
+
+	// Check if any farm plots already exist; if none exist, spawn a row of 3 plots for prototyping
+	TArray<AActor*> ExistingPlots;
+	UGameplayStatics::GetAllActorsOfClass(World, AFarmPlotBase::StaticClass(), ExistingPlots);
+	if (ExistingPlots.Num() == 0)
+	{
+		const FVector PlotLocations[] = {
+			FVector(250.0f, -200.0f, -20000.0f),
+			FVector(250.0f, 0.0f, -20000.0f),
+			FVector(250.0f, 200.0f, -20000.0f)
+		};
+
+		for (int32 i = 0; i < 3; ++i)
+		{
+			AFarmPlotBase* Plot = World->SpawnActor<AFarmPlotBase>(AFarmPlotBase::StaticClass(), PlotLocations[i], FRotator::ZeroRotator, SpawnParams);
+#if WITH_EDITOR
+			if (Plot)
+			{
+				Plot->SetActorLabel(FString::Printf(TEXT("Prototype_FarmPlot_%d"), i + 1));
+			}
+#endif
+		}
+		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned 3 prototype AFarmPlotBase actors at Z = -20000."));
 	}
 }
 

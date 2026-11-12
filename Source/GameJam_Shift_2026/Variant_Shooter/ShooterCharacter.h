@@ -195,6 +195,28 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Farming")
 	UFarmingComponent* GetFarmingComponent() const { return FarmingComponent; }
 
+	/** Farming tool direct selection and cycling actions */
+	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
+	void SelectTool1();
+
+	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
+	void SelectTool2();
+
+	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
+	void SelectTool3();
+
+	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
+	void SelectTool4();
+
+	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
+	void CycleToolNext();
+
+	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
+	void CycleToolPrevious();
+
+	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
+	void CycleSeedNext();
+
 public:
 
 	/** Unequips the currently equipped weapon */
