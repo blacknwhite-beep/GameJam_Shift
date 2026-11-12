@@ -68,7 +68,7 @@
   - Define `UENUM(BlueprintType) enum class ECropStage : uint8 { Empty, Planted, Growing, Mature };`
   - Define `UENUM(BlueprintType) enum class EFarmTool : uint8 { Hoe, WateringCan, Harvester };`
   - Define `USTRUCT(BlueprintType) struct FCropYieldData { ... };`
-- [ ] **4.2** Create `Source/GameJam_Shift_2026/Farming/FarmPlotBase.h & .cpp`:
+- [x] **4.2** Create `Source/GameJam_Shift_2026/Farming/FarmPlotBase.h & .cpp`:
   - Inherit from `AActor`.
   - Properties: `CurrentStage`, `StageDuration`, `bIsWatered`, `YieldItemID`, `YieldQuantity`.
   - Function: `UFUNCTION(BlueprintCallable) void WaterPlot();` (sets `bIsWatered = true`, starts timer).
