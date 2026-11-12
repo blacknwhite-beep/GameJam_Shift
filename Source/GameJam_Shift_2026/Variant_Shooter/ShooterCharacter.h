@@ -217,6 +217,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
 	void CycleSeedNext();
 
+	/** Restores character health (capped at MaxHP) */
+	UFUNCTION(BlueprintCallable, Category = "Health")
+	void Heal(float Amount);
+
+	/** Gets current HP */
+	UFUNCTION(BlueprintPure, Category = "Health")
+	float GetCurrentHP() const { return CurrentHP; }
+
+	/** Gets maximum HP */
+	UFUNCTION(BlueprintPure, Category = "Health")
+	float GetMaxHP() const { return MaxHP; }
+
+	/** Uses a medkit from Tarkov inventory to restore health */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Action")
+	void UseMedkit();
+
 public:
 
 	/** Unequips the currently equipped weapon */

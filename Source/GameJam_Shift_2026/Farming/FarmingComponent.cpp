@@ -2,6 +2,7 @@
 
 #include "FarmingComponent.h"
 #include "FarmPlotBase.h"
+#include "InterWorldBridge.h"
 #include "GameJam_Shift_2026.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -148,6 +149,7 @@ void UFarmingComponent::ExecuteToolOnPlot(AFarmPlotBase* Plot)
 			if (Plot->Harvest(HarvestedItem, HarvestedQty))
 			{
 				OnCropHarvested.Broadcast(HarvestedItem, HarvestedQty);
+				UInterWorldBridge::DepositHarvestToInventory(GetOwner(), HarvestedItem, HarvestedQty);
 			}
 		}
 		else
@@ -225,6 +227,7 @@ void UFarmingComponent::ExecuteToolOnPlot(AFarmPlotBase* Plot)
 			if (Plot->Harvest(HarvestedItem, HarvestedQty))
 			{
 				OnCropHarvested.Broadcast(HarvestedItem, HarvestedQty);
+				UInterWorldBridge::DepositHarvestToInventory(GetOwner(), HarvestedItem, HarvestedQty);
 			}
 		}
 		else if (Plot->CanPlant())

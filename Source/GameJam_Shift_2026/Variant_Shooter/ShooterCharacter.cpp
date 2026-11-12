@@ -6,6 +6,7 @@
 #include "Inventory/TarkovInventoryComponent.h"
 #include "DimensionShiftSubsystem.h"
 #include "FarmingComponent.h"
+#include "InterWorldBridge.h"
 #include "GameJam_Shift_2026.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -161,6 +162,9 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AShooterCharacter::CycleToolPrevious);
 	PlayerInputComponent->BindKey(EKeys::E, IE_Pressed, this, &AShooterCharacter::CycleToolNext);
 	PlayerInputComponent->BindKey(EKeys::T, IE_Pressed, this, &AShooterCharacter::CycleSeedNext);
+
+	// Quick use medkit action (H key)
+	PlayerInputComponent->BindKey(EKeys::H, IE_Pressed, this, &AShooterCharacter::UseMedkit);
 
 }
 
@@ -747,4 +751,20 @@ void AShooterCharacter::CycleSeedNext()
 	{
 		FarmingComponent->CycleSeed(true);
 	}
+}
+
+void AShooterCharacter::Heal(float Amount)
+{
+	if (IsDead() || Amount <= 0.0f)
+	{
+		return;
+	}
+
+	CurrentHP = FMath::Min(MaxHP, CurrentHP + Amount);
+	OnDamaged.Broadcast(FMath::Max(0.0f, CurrentHP / MaxHP));
+}
+
+void AShooterCharacter::UseMedkit()
+{
+	UInterWorldBridge::UseMedkitFromInventory(this, 50.0f);
 }

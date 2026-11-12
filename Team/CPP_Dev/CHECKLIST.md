@@ -88,7 +88,7 @@
 ---
 
 ### Phase 5: Economy Bridge (Crops -> Tarkov Inventory)
-- [ ] **5.1** Create `Source/GameJam_Shift_2026/InterWorld/InterWorldBridge.h & .cpp`:
+- [x] **5.1** Create `Source/GameJam_Shift_2026/InterWorld/InterWorldBridge.h & .cpp`:
   - Static helper: `static bool DepositHarvestToInventory(AActor* Player, FName ItemID, int32 Quantity);`
   - Connect to `UTarkovInventoryComponent`:
     - `"Item_Ammo_Pistol"` -> adds 9mm stacks to grid.
