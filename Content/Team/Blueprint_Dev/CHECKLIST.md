@@ -98,15 +98,15 @@ C++ gives you `FarmPlotBase`. You use it to make as many fun crops as you want!
 ### Phase 4: User Interface (UMG Widgets)
 Build the player's on-screen HUDs in `UI/`.
 
-- [ ] **4.1 Farming HUD (`WBP_FarmingHUD`)**:
+- [x] **4.1 Farming HUD (`WBP_FarmingHUD`)**:
   - Add an icon displaying the currently selected tool: Hoe, Watering Can, or Harvester.
   - Add a seed pouch counter: e.g. `Corn Seeds: x4`, `Wheat Seeds: x2`.
   - Wire mouse scroll wheel to call C++ node **`Cycle Tool`**.
-- [ ] **4.2 Crop Hover Prompt (`WBP_CropPrompt`)**:
+- [x] **4.2 Crop Hover Prompt (`WBP_CropPrompt`)**:
   - A small 3D widget placed above each farm plot.
   - If unwatered -> show blue water drop icon.
   - If mature -> show green `"Press [E] to Harvest"` prompt.
-- [ ] **4.3 HUD Swapping on Shift**:
+- [x] **4.3 HUD Swapping on Shift**:
   - In `BP_ShooterCharacter`:
     - When shifting to **Farming**: Show `WBP_FarmingHUD`, hide crosshair and weapon ammo counter.
     - When shifting to **Combat**: Show crosshair and weapon ammo counter, hide `WBP_FarmingHUD`.

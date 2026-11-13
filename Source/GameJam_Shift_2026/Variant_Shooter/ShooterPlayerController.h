@@ -83,4 +83,10 @@ protected:
 
 	/** Returns true if the player should use UMG touch controls */
 	bool ShouldUseTouchControls() const;
+
+public:
+
+	/** Returns the combat bullet counter UI widget */
+	UFUNCTION(BlueprintPure, Category="Shooter|UI")
+	UShooterBulletCounterUI* GetBulletCounterUI() const { return BulletCounterUI; }
 };

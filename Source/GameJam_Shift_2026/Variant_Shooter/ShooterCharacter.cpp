@@ -22,6 +22,9 @@
 #include "Camera/CameraComponent.h"
 #include "TimerManager.h"
 #include "ShooterGameMode.h"
+#include "ShooterPlayerController.h"
+#include "ShooterBulletCounterUI.h"
+#include "UI/TarkovInventoryWidgets.h"
 
 namespace
 {
@@ -161,6 +164,8 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindKey(EKeys::Four, IE_Pressed, this, &AShooterCharacter::SelectTool4);
 	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AShooterCharacter::CycleToolPrevious);
 	PlayerInputComponent->BindKey(EKeys::E, IE_Pressed, this, &AShooterCharacter::CycleToolNext);
+	PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AShooterCharacter::CycleToolPrevious);
+	PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AShooterCharacter::CycleToolNext);
 	PlayerInputComponent->BindKey(EKeys::T, IE_Pressed, this, &AShooterCharacter::CycleSeedNext);
 
 	// Quick use medkit action (H key)
@@ -415,18 +420,52 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 			GetMesh()->SetAnimInstanceClass(nullptr);
 		}
 
+		// Show Farming HUD (WBP_FarmingHUD) and hide Combat HUD / weapon slot
+		if (FarmingComponent)
+		{
+			FarmingComponent->SetFarmingHUDVisible(true);
+		}
+		if (AShooterPlayerController* ShooterPC = Cast<AShooterPlayerController>(PC))
+		{
+			if (ShooterPC->GetBulletCounterUI())
+			{
+				ShooterPC->GetBulletCounterUI()->SetVisibility(ESlateVisibility::Hidden);
+			}
+		}
+		if (TarkovInventory && TarkovInventory->HUDRoot)
+		{
+			TarkovInventory->HUDRoot->SetVisibility(ESlateVisibility::Hidden);
+		}
+
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(
 				9122, 5.0f, FColor::Emerald,
-				TEXT(">>> [FARM WORLD] Left Click: Use Tool | 1-4 or Q/E: Tool | T: Seed | Shift: Combat")
+				TEXT(">>> [FARM WORLD] Left Click: Use Tool | 1-4 / Scroll / Q-E: Tool | T: Seed | Shift: Combat")
 			);
 		}
 
-		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("ShooterCharacter: Swapped to Farming input context."));
+		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("ShooterCharacter: Swapped to Farming input context and HUD."));
 	}
 	else
 	{
+		// Returning to Combat dimension: hide Farming HUD and restore Combat HUD / weapon slot
+		if (FarmingComponent)
+		{
+			FarmingComponent->SetFarmingHUDVisible(false);
+		}
+		if (AShooterPlayerController* ShooterPC = Cast<AShooterPlayerController>(PC))
+		{
+			if (ShooterPC->GetBulletCounterUI())
+			{
+				ShooterPC->GetBulletCounterUI()->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			}
+		}
+		if (TarkovInventory && TarkovInventory->HUDRoot)
+		{
+			TarkovInventory->HUDRoot->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		}
+
 		// Returning to Combat dimension: remove farming input context
 		if (FarmingMappingContext)
 		{

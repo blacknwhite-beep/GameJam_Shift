@@ -2,6 +2,7 @@
 
 #include "FarmingComponent.h"
 #include "FarmPlotBase.h"
+#include "FarmingHUDWidgets.h"
 #include "InterWorldBridge.h"
 #include "GameJam_Shift_2026.h"
 #include "GameFramework/Pawn.h"
@@ -334,11 +335,59 @@ void UFarmingComponent::SetSelectedSeed(FName NewSeedID)
 		SelectedSeedIndex = FoundIndex;
 	}
 
+	if (ActiveFarmingHUD)
+	{
+		ActiveFarmingHUD->RefreshHUD();
+	}
+
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(
 			9123, 3.0f, FColor::Green,
 			FString::Printf(TEXT(">>> [FARM SEED] Selected: %s"), *SelectedSeedID.ToString())
 		);
+	}
+}
+
+void UFarmingComponent::SetFarmingHUDVisible(bool bVisible)
+{
+	if (bVisible)
+	{
+		if (!ActiveFarmingHUD)
+		{
+			APawn* OwnerPawn = Cast<APawn>(GetOwner());
+			APlayerController* PC = OwnerPawn ? Cast<APlayerController>(OwnerPawn->GetController()) : nullptr;
+			if (PC && PC->IsLocalController())
+			{
+				TSubclassOf<UFarmingHUDWidget> ClassToSpawn = FarmingHUDClass;
+				if (!ClassToSpawn)
+				{
+					ClassToSpawn = LoadClass<UFarmingHUDWidget>(nullptr, TEXT("/Game/Dev_Blueprint/UI/WBP_FarmingHUD.WBP_FarmingHUD_C"));
+				}
+				if (!ClassToSpawn)
+				{
+					ClassToSpawn = UFarmingHUDWidget::StaticClass();
+				}
+
+				ActiveFarmingHUD = CreateWidget<UFarmingHUDWidget>(PC, ClassToSpawn);
+				if (ActiveFarmingHUD)
+				{
+					ActiveFarmingHUD->AddToViewport(5);
+				}
+			}
+		}
+
+		if (ActiveFarmingHUD)
+		{
+			ActiveFarmingHUD->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+			ActiveFarmingHUD->RefreshHUD();
+		}
+	}
+	else
+	{
+		if (ActiveFarmingHUD)
+		{
+			ActiveFarmingHUD->SetVisibility(ESlateVisibility::Hidden);
+		}
 	}
 }

@@ -8,6 +8,7 @@
 #include "FarmingComponent.generated.h"
 
 class AFarmPlotBase;
+class UFarmingHUDWidget;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFarmToolChanged, EFarmTool, NewTool);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnCropHarvested, FName, ItemID, int32, Quantity);
@@ -51,6 +52,18 @@ public:
 	/** Max reach distance when interacting with soil plots (in cm) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Interaction", meta = (ClampMin = "50.0", ClampMax = "2000.0"))
 	float InteractionDistance;
+
+	/** Optional Widget Blueprint override for WBP_FarmingHUD */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|UI")
+	TSubclassOf<UFarmingHUDWidget> FarmingHUDClass;
+
+	/** Active instance of the Farming HUD widget */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Farming|UI")
+	TObjectPtr<UFarmingHUDWidget> ActiveFarmingHUD;
+
+	/** Shows or hides the Farming HUD widget (creating it on demand) */
+	UFUNCTION(BlueprintCallable, Category = "Farming|UI")
+	void SetFarmingHUDVisible(bool bVisible);
 
 	// -------------------------------------------------------------------------
 	// Core Interaction API
