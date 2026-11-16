@@ -5,6 +5,7 @@
 #include "ShooterWeapon.h"
 #include "Inventory/TarkovInventoryComponent.h"
 #include "DimensionShiftSubsystem.h"
+#include "DimensionShiftCameraShake.h"
 #include "FarmingComponent.h"
 #include "InterWorldBridge.h"
 #include "GameJam_Shift_2026.h"
@@ -13,6 +14,7 @@
 #include "InputMappingContext.h"
 #include "Components/InputComponent.h"
 #include "Components/PawnNoiseEmitterComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
@@ -20,6 +22,11 @@
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "Camera/CameraComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "Sound/SoundBase.h"
 #include "TimerManager.h"
 #include "ShooterGameMode.h"
 #include "ShooterPlayerController.h"
@@ -98,6 +105,71 @@ void AShooterCharacter::BeginPlay()
 		if (UDimensionShiftSubsystem* Subsystem = GI->GetSubsystem<UDimensionShiftSubsystem>())
 		{
 			Subsystem->OnDimensionShifted.AddDynamic(this, &AShooterCharacter::HandleOnDimensionShifted);
+		}
+	}
+
+	// Cache Dimension Shift Phase 1 game-feel assets (with safe C++ fallbacks)
+	if (!ShiftCameraShakeClass)
+	{
+		if (UClass* LoadedShake = StaticLoadClass(UCameraShakeBase::StaticClass(), nullptr, TEXT("/Game/Dev_Blueprint/VFX/CS_DimensionShift.CS_DimensionShift_C")))
+		{
+			ShiftCameraShakeClass = LoadedShake;
+		}
+		else
+		{
+			ShiftCameraShakeClass = UDimensionShiftCameraShake::StaticClass();
+		}
+	}
+
+	if (!ShiftSoundCue)
+	{
+		ShiftSoundCue = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/Cue_DimensionShift.Cue_DimensionShift"));
+		if (!ShiftSoundCue)
+		{
+			ShiftSoundCue = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_DimensionShift.SFX_DimensionShift"));
+		}
+	}
+
+	if (!ShiftPortalVFX)
+	{
+		ShiftPortalVFX = LoadObject<UNiagaraSystem>(nullptr, TEXT("/Game/Dev_Blueprint/VFX/NS_DimensionPortal.NS_DimensionPortal"));
+	}
+
+	if (!ShiftPostProcessMaterial)
+	{
+		ShiftPostProcessMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/VFX/M_PP_DimensionShift.M_PP_DimensionShift"));
+	}
+
+	if (ShiftPostProcessMaterial && GetFirstPersonCameraComponent())
+	{
+		ShiftPostProcessMID = UMaterialInstanceDynamic::Create(ShiftPostProcessMaterial, this);
+		if (ShiftPostProcessMID)
+		{
+			ShiftPostProcessMID->SetScalarParameterValue(TEXT("GlitchIntensity"), 0.0f);
+			ShiftPostProcessBlendableIndex = GetFirstPersonCameraComponent()->PostProcessSettings.WeightedBlendables.Array.Add(
+				FWeightedBlendable(0.0f, ShiftPostProcessMID));
+		}
+	}
+}
+
+void AShooterCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (ShiftGlitchRemaining > 0.0f)
+	{
+		ShiftGlitchRemaining = FMath::Max(0.0f, ShiftGlitchRemaining - DeltaTime);
+		const float Alpha = (ShiftGlitchDuration > KINDA_SMALL_NUMBER)
+			? FMath::Clamp(ShiftGlitchRemaining / ShiftGlitchDuration, 0.0f, 1.0f)
+			: 0.0f;
+
+		if (ShiftPostProcessMID)
+		{
+			ShiftPostProcessMID->SetScalarParameterValue(TEXT("GlitchIntensity"), Alpha);
+		}
+		if (GetFirstPersonCameraComponent() && GetFirstPersonCameraComponent()->PostProcessSettings.WeightedBlendables.Array.IsValidIndex(ShiftPostProcessBlendableIndex))
+		{
+			GetFirstPersonCameraComponent()->PostProcessSettings.WeightedBlendables.Array[ShiftPostProcessBlendableIndex].Weight = Alpha;
 		}
 	}
 }
@@ -368,6 +440,36 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 	{
 		return;
 	}
+
+	// Phase 1 Game Feel: 1) Camera Shake, 2) Audio Stinger, 3) Portal Sparkle VFX, 4) Post-Process Glitch Fade
+	if (ShiftCameraShakeClass)
+	{
+		PC->ClientStartCameraShake(ShiftCameraShakeClass, 1.0f);
+	}
+
+	if (ShiftSoundCue)
+	{
+		UGameplayStatics::PlaySound2D(this, ShiftSoundCue);
+	}
+
+	if (ShiftPortalVFX)
+	{
+		const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 88.0f;
+		const FVector FeetLocation = TargetLocation - FVector(0.0f, 0.0f, HalfHeight);
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), ShiftPortalVFX, FeetLocation, FRotator::ZeroRotator, FVector::OneVector, true, true);
+	}
+
+	if (ShiftPostProcessMID)
+	{
+		ShiftGlitchRemaining = ShiftGlitchDuration;
+		ShiftPostProcessMID->SetScalarParameterValue(TEXT("GlitchIntensity"), 1.0f);
+		if (GetFirstPersonCameraComponent() && GetFirstPersonCameraComponent()->PostProcessSettings.WeightedBlendables.Array.IsValidIndex(ShiftPostProcessBlendableIndex))
+		{
+			GetFirstPersonCameraComponent()->PostProcessSettings.WeightedBlendables.Array[ShiftPostProcessBlendableIndex].Weight = 1.0f;
+		}
+	}
+
+	BP_OnDimensionShifted(NewDimension, TargetLocation);
 
 	UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer());
 	if (!Subsystem)

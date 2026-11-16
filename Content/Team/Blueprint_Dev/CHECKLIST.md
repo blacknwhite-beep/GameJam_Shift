@@ -27,15 +27,15 @@ Content/Dev_Blueprint/
 ### Phase 1: The "Shift" Dimension Transition (Game Feel)
 When the player presses Shift, C++ instantly teleports the character. **Your job is to make it look and feel amazing!**
 
-- [ ] **1.1 Camera Shake**:
+- [x] **1.1 Camera Shake**:
   - Right-click in `VFX/` -> **Blueprint Class** -> Select `CameraShakeBase`.
   - Name it `CS_DimensionShift`.
   - Add an oscillation: Pitch amplitude `5.0`, FOV kick `10.0` for duration `0.2s`.
-- [ ] **1.2 Audio Stinger**:
+- [x] **1.2 Audio Stinger**:
   - Add a dimensional whoosh / electric crackle sound cue in `Audio/` (`Cue_DimensionShift`).
-- [ ] **1.3 Post-Process Glitch Effect**:
+- [x] **1.3 Post-Process Glitch Effect**:
   - Create a Post-Process Material (or Material Parameter Collection) with slight chromatic aberration / color pulse.
-- [ ] **1.4 Connect in Blueprint**:
+- [x] **1.4 Connect in Blueprint**:
   - Open `BP_ShooterCharacter` (in `Blueprints/`).
   - Right-click in Event Graph -> Add node: **`Event On Dimension Shifted`** (provided by C++).
   - Connect:

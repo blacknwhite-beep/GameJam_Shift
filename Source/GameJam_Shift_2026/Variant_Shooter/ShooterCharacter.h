@@ -14,6 +14,11 @@ class UInputMappingContext;
 class UInputComponent;
 class UPawnNoiseEmitterComponent;
 class UFarmingComponent;
+class UCameraShakeBase;
+class USoundBase;
+class UNiagaraSystem;
+class UMaterialInterface;
+class UMaterialInstanceDynamic;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
@@ -120,6 +125,36 @@ protected:
 
 	FTimerHandle RespawnTimer;
 
+	/** Camera shake played on dimension shift (CS_DimensionShift) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dimension Shift|Game Feel")
+	TSubclassOf<UCameraShakeBase> ShiftCameraShakeClass;
+
+	/** Audio stinger played on dimension shift (Cue_DimensionShift) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dimension Shift|Game Feel")
+	TObjectPtr<USoundBase> ShiftSoundCue;
+
+	/** Portal sparkle Niagara system spawned at player feet on dimension shift */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dimension Shift|Game Feel")
+	TObjectPtr<UNiagaraSystem> ShiftPortalVFX;
+
+	/** Post-process glitch material applied during dimension shift */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dimension Shift|Game Feel")
+	TObjectPtr<UMaterialInterface> ShiftPostProcessMaterial;
+
+	/** Duration in seconds for the post-process glitch fade-out */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dimension Shift|Game Feel", meta = (ClampMin = "0.05"))
+	float ShiftGlitchDuration = 0.2f;
+
+	/** Dynamic instance of ShiftPostProcessMaterial attached to the camera */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> ShiftPostProcessMID;
+
+	/** Remaining fade time for the post-process glitch effect */
+	float ShiftGlitchRemaining = 0.0f;
+
+	/** Index of ShiftPostProcessMID inside FirstPersonCameraComponent->PostProcessSettings.WeightedBlendables */
+	int32 ShiftPostProcessBlendableIndex = INDEX_NONE;
+
 public:
 
 	/** Bullet count updated delegate */
@@ -137,6 +172,9 @@ protected:
 
 	/** Gameplay initialization */
 	virtual void BeginPlay() override;
+
+	/** Per-frame update (fades dimension shift post-process glitch) */
+	virtual void Tick(float DeltaTime) override;
 
 	/** Gameplay cleanup */
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
@@ -190,6 +228,10 @@ public:
 	/** Responds to dimension shift events (e.g. swapping input contexts and weapons) */
 	UFUNCTION()
 	void HandleOnDimensionShifted(EGameDimension NewDimension, FVector TargetLocation);
+
+	/** Blueprint hook called whenever a dimension shift completes */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Dimension Shift")
+	void BP_OnDimensionShifted(EGameDimension NewDimension, FVector TargetLocation);
 
 	/** Returns the farming component */
 	UFUNCTION(BlueprintCallable, Category = "Farming")
