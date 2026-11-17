@@ -16,12 +16,15 @@ AZombieEnemy::AZombieEnemy()
 	WeaponClass = nullptr;
 	CurrentHP = 100.0f;
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+	// Use plain AAIController instead of AShooterAIController so ST_Shooter StateTree never overrides zombie melee AI
+	AIControllerClass = AAIController::StaticClass();
 
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
 		MoveComp->MaxWalkSpeed = ZombieMoveSpeed;
-		MoveComp->bOrientRotationToMovement = true;
-		MoveComp->RotationRate = FRotator(0.0f, 420.0f, 0.0f);
+		MoveComp->bOrientRotationToMovement = false;
+		MoveComp->bUseControllerDesiredRotation = false;
+		MoveComp->RotationRate = FRotator(0.0f, 540.0f, 0.0f);
 	}
 	bUseControllerRotationYaw = false;
 }
@@ -34,7 +37,15 @@ void AZombieEnemy::BeginPlay()
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
 		MoveComp->MaxWalkSpeed = ZombieMoveSpeed;
-		MoveComp->bOrientRotationToMovement = true;
+		MoveComp->bOrientRotationToMovement = false;
+		MoveComp->bUseControllerDesiredRotation = false;
+		MoveComp->SetMovementMode(MOVE_Walking);
+	}
+
+	// Ensure Manny/Quinn skeletal mesh faces actor forward (+X)
+	if (GetMesh())
+	{
+		GetMesh()->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
 	}
 
 	if (ZombieSkinMaterial && GetMesh())
@@ -86,12 +97,12 @@ void AZombieEnemy::Tick(float DeltaTime)
 		return;
 	}
 
-	// Face toward the player
+	// Always turn smoothly to face the player directly
 	const FVector ToPlayer2D = (PlayerLoc - MyLoc).GetSafeNormal2D();
 	if (!ToPlayer2D.IsNearlyZero())
 	{
-		const FRotator DesiredRot = ToPlayer2D.Rotation();
-		SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredRot, DeltaTime, 8.0f));
+		const FRotator DesiredRot(0.0f, ToPlayer2D.Rotation().Yaw, 0.0f);
+		SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredRot, DeltaTime, 10.0f));
 	}
 
 	if (Dist <= MeleeRange)
@@ -110,18 +121,8 @@ void AZombieEnemy::Tick(float DeltaTime)
 	}
 	else
 	{
-		// Use AIController pathfinding when NavMesh is available, with direct ground steering fallback
-		bool bMovedViaNav = false;
-		if (AAIController* AICon = Cast<AAIController>(GetController()))
-		{
-			const EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(PlayerPawn, MeleeRange * 0.65f, true, true, false);
-			bMovedViaNav = (MoveResult != EPathFollowingRequestResult::Failed);
-		}
-
-		if (!bMovedViaNav && !ToPlayer2D.IsNearlyZero())
-		{
-			AddMovementInput(ToPlayer2D, 1.0f);
-		}
+		// Steer directly toward the player; also nudge AIController if NavMesh is built
+		AddMovementInput(ToPlayer2D, 1.0f);
 	}
 }
 
