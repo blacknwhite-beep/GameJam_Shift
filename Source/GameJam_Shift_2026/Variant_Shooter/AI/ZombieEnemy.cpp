@@ -1,0 +1,148 @@
+// Copyright GameJam Shift 2026. All Rights Reserved.
+
+#include "Variant_Shooter/AI/ZombieEnemy.h"
+#include "AIController.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInterface.h"
+#include "Navigation/PathFollowingComponent.h"
+#include "Sound/SoundBase.h"
+#include "Engine/World.h"
+
+AZombieEnemy::AZombieEnemy()
+{
+	PrimaryActorTick.bCanEverTick = true;
+	WeaponClass = nullptr;
+	CurrentHP = 100.0f;
+	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->MaxWalkSpeed = ZombieMoveSpeed;
+		MoveComp->bOrientRotationToMovement = true;
+		MoveComp->RotationRate = FRotator(0.0f, 420.0f, 0.0f);
+	}
+	bUseControllerRotationYaw = false;
+}
+
+void AZombieEnemy::BeginPlay()
+{
+	// Skip spawning a firearm by keeping WeaponClass null; AShooterNPC::BeginPlay handles null WeaponClass safely
+	Super::BeginPlay();
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->MaxWalkSpeed = ZombieMoveSpeed;
+		MoveComp->bOrientRotationToMovement = true;
+	}
+
+	if (ZombieSkinMaterial && GetMesh())
+	{
+		const int32 NumMats = GetMesh()->GetNumMaterials();
+		for (int32 i = 0; i < NumMats; ++i)
+		{
+			GetMesh()->SetMaterial(i, ZombieSkinMaterial);
+		}
+	}
+}
+
+void AZombieEnemy::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (bIsDead)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(World, 0);
+	if (!PlayerPawn)
+	{
+		return;
+	}
+
+	// Only chase players currently in the Combat dimension (Z > -10,000); pause cleanly if player shifted to the Farm
+	if (PlayerPawn->GetActorLocation().Z < -10000.0f)
+	{
+		if (AAIController* AICon = Cast<AAIController>(GetController()))
+		{
+			AICon->StopMovement();
+		}
+		return;
+	}
+
+	const FVector MyLoc = GetActorLocation();
+	const FVector PlayerLoc = PlayerPawn->GetActorLocation();
+	const float Dist = FVector::Dist(MyLoc, PlayerLoc);
+	if (Dist > DetectionRange)
+	{
+		return;
+	}
+
+	// Face toward the player
+	const FVector ToPlayer2D = (PlayerLoc - MyLoc).GetSafeNormal2D();
+	if (!ToPlayer2D.IsNearlyZero())
+	{
+		const FRotator DesiredRot = ToPlayer2D.Rotation();
+		SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredRot, DeltaTime, 8.0f));
+	}
+
+	if (Dist <= MeleeRange)
+	{
+		if (AAIController* AICon = Cast<AAIController>(GetController()))
+		{
+			AICon->StopMovement();
+		}
+
+		const float Now = World->GetTimeSeconds();
+		if (Now - LastAttackTime >= AttackCooldown)
+		{
+			LastAttackTime = Now;
+			PerformMeleeAttack(PlayerPawn);
+		}
+	}
+	else
+	{
+		// Use AIController pathfinding when NavMesh is available, with direct ground steering fallback
+		bool bMovedViaNav = false;
+		if (AAIController* AICon = Cast<AAIController>(GetController()))
+		{
+			const EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(PlayerPawn, MeleeRange * 0.65f, true, true, false);
+			bMovedViaNav = (MoveResult != EPathFollowingRequestResult::Failed);
+		}
+
+		if (!bMovedViaNav && !ToPlayer2D.IsNearlyZero())
+		{
+			AddMovementInput(ToPlayer2D, 1.0f);
+		}
+	}
+}
+
+void AZombieEnemy::PerformMeleeAttack(AActor* TargetActor)
+{
+	if (!TargetActor || bIsDead)
+	{
+		return;
+	}
+
+	// Small forward lunge impulse for tactile melee feel
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		const FVector LungeDir = (TargetActor->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		MoveComp->AddImpulse(LungeDir * 240.0f, true);
+	}
+
+	if (AttackGroanSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, AttackGroanSound, GetActorLocation());
+	}
+
+	UGameplayStatics::ApplyDamage(TargetActor, MeleeDamage, GetController(), this, nullptr);
+}

@@ -116,14 +116,14 @@ Build the player's on-screen HUDs in `UI/`.
 ### Phase 5: Combat World Level & Tuning (`Lvl_Combat.umap`)
 Build the intense combat dimension at `Z = 0`.
 
-- [ ] **5.1 Create Level**:
+- [x] **5.1 Create Level**:
   - In `Maps/`, create `Lvl_Combat.umap` at coordinates `(0, 0, 0)`.
-- [ ] **5.2 Environment & Obstacles**:
+- [x] **5.2 Environment & Obstacles**:
   - Place broken concrete walls, sandbags, metal barriers, and ruined buildings.
   - Align landmarks with the farm: e.g., the ruined fortress in combat sits right above the farm barn below!
-- [ ] **5.3 Atmosphere**:
+- [x] **5.3 Atmosphere**:
   - Dark overcast sky, combat smoke, red emergency lights, flickering lamps.
-- [ ] **5.4 Enemies & Pickups**:
+- [x] **5.4 Enemies & Pickups**:
   - Place `BP_ShooterNPCSpawner` actors behind cover to spawn enemy waves.
   - Place weapon pickup crates containing pistols, shotguns, and seed pouches.
 

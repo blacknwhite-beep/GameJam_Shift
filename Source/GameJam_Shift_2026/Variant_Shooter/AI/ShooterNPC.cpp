@@ -46,13 +46,16 @@ void AShooterNPC::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// spawn the weapon
-	FActorSpawnParameters SpawnParams;
-	SpawnParams.Owner = this;
-	SpawnParams.Instigator = this;
-	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	// spawn the weapon if configured (melee-only enemies like AZombieEnemy leave WeaponClass null)
+	if (WeaponClass)
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = this;
+		SpawnParams.Instigator = this;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	Weapon = GetWorld()->SpawnActor<AShooterWeapon>(WeaponClass, GetActorTransform(), SpawnParams);
+		Weapon = GetWorld()->SpawnActor<AShooterWeapon>(WeaponClass, GetActorTransform(), SpawnParams);
+	}
 }
 
 void AShooterNPC::EndPlay(const EEndPlayReason::Type EndPlayReason)
