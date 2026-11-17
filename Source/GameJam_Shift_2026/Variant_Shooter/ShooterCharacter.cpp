@@ -105,6 +105,12 @@ void AShooterCharacter::BeginPlay()
 		if (UDimensionShiftSubsystem* Subsystem = GI->GetSubsystem<UDimensionShiftSubsystem>())
 		{
 			Subsystem->OnDimensionShifted.AddDynamic(this, &AShooterCharacter::HandleOnDimensionShifted);
+
+			// Start streaming Lvl_Farm (Z = -20,000) early so it is ready before the first Shift
+			if (IsPlayerControlled())
+			{
+				Subsystem->EnsureFarmLevelLoaded(GetWorld());
+			}
 		}
 	}
 

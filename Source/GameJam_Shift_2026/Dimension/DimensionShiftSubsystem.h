@@ -76,7 +76,34 @@ public:
 	/** Spawns a 1km x 1km solid prototype platform at Z = -20000 if no farm ground exists. */
 	void EnsurePrototypeFarmPlatform(UWorld* World) const;
 
+	/** Level built by the Blueprint Designer for the Farming dimension (streamed in at FarmWorldOffset). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dimension Shift|Farm Level")
+	TSoftObjectPtr<UWorld> FarmLevel;
+
+	/** Actor tag that marks sun/sky/fog actors belonging to the Farming dimension. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dimension Shift|Farm Level")
+	FName FarmWorldTag;
+
+	/** Streams FarmLevel into the given world at FarmWorldOffset (idempotent). */
+	UFUNCTION(BlueprintCallable, Category = "Dimension Shift|Farm Level")
+	void EnsureFarmLevelLoaded(UWorld* World);
+
+	/**
+	 * Shows the sun/sky/fog of the active dimension and hides the other one.
+	 * Actors tagged FarmWorldTag are visible only in Farming; untagged ones only in Combat.
+	 * A combat light type is only hidden if the farm actually provides a replacement of that type.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Dimension Shift|Farm Level")
+	void ApplyDimensionLighting(UWorld* World, EGameDimension Dimension) const;
+
 private:
+	/** Called once the streamed farm level becomes visible. */
+	UFUNCTION()
+	void HandleFarmLevelShown();
+
+	/** Streaming handle for the loaded farm level instance. */
+	TWeakObjectPtr<class ULevelStreamingDynamic> FarmLevelStreaming;
+
 	/** Timestamp in world seconds of the last successful shift. */
 	float LastShiftTime;
 

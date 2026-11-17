@@ -14,14 +14,141 @@
 #include "GameFramework/WorldSettings.h"
 #include "Farming/FarmPlotBase.h"
 #include "Kismet/GameplayStatics.h"
+#include "Engine/LevelStreamingDynamic.h"
+#include "Misc/PackageName.h"
+#include "EngineUtils.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/SkyAtmosphereComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
+#include "Components/VolumetricCloudComponent.h"
+
+namespace
+{
+	/** Returns a bit index for environment component types we swap between dimensions, or INDEX_NONE. */
+	int32 GetEnvironmentTypeIndex(const UActorComponent* Comp)
+	{
+		if (Comp->IsA<UDirectionalLightComponent>())     { return 0; }
+		if (Comp->IsA<USkyLightComponent>())             { return 1; }
+		if (Comp->IsA<USkyAtmosphereComponent>())        { return 2; }
+		if (Comp->IsA<UExponentialHeightFogComponent>()) { return 3; }
+		if (Comp->IsA<UVolumetricCloudComponent>())      { return 4; }
+		return INDEX_NONE;
+	}
+}
 
 UDimensionShiftSubsystem::UDimensionShiftSubsystem()
 	: FarmWorldOffset(0.0f, 0.0f, -20000.0f)
 	, ShiftCooldown(0.5f)
 	, bRequireGroundCheck(true)
 	, CurrentDimension(EGameDimension::Combat)
+	, FarmLevel(FSoftObjectPath(TEXT("/Game/Dev_Blueprint/Maps/Lvl_Farm.Lvl_Farm")))
+	, FarmWorldTag(TEXT("FarmWorld"))
 	, LastShiftTime(-100.0f)
 {
+}
+
+void UDimensionShiftSubsystem::EnsureFarmLevelLoaded(UWorld* World)
+{
+	if (!World || !World->IsGameWorld() || FarmLevel.IsNull())
+	{
+		return;
+	}
+
+	if (FarmLevelStreaming.IsValid() && FarmLevelStreaming->GetWorld() == World)
+	{
+		return;
+	}
+
+	const FString PackageName = FarmLevel.ToSoftObjectPath().GetLongPackageName();
+	if (!FPackageName::DoesPackageExist(PackageName))
+	{
+		UE_LOG(LogGameJam_Shift_2026, Warning, TEXT("UDimensionShiftSubsystem: Farm level %s not found, using prototype platform."), *PackageName);
+		return;
+	}
+
+	bool bSuccess = false;
+	ULevelStreamingDynamic* Streaming = ULevelStreamingDynamic::LoadLevelInstanceBySoftObjectPtr(
+		World, FarmLevel, FarmWorldOffset, FRotator::ZeroRotator, bSuccess);
+
+	if (bSuccess && Streaming)
+	{
+		Streaming->bShouldBlockOnLoad = true;
+		Streaming->OnLevelShown.AddUniqueDynamic(this, &UDimensionShiftSubsystem::HandleFarmLevelShown);
+		FarmLevelStreaming = Streaming;
+		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Streaming %s at %s."), *PackageName, *FarmWorldOffset.ToString());
+	}
+	else
+	{
+		UE_LOG(LogGameJam_Shift_2026, Warning, TEXT("UDimensionShiftSubsystem: Failed to stream farm level %s."), *PackageName);
+	}
+}
+
+void UDimensionShiftSubsystem::HandleFarmLevelShown()
+{
+	if (FarmLevelStreaming.IsValid())
+	{
+		ApplyDimensionLighting(FarmLevelStreaming->GetWorld(), CurrentDimension);
+	}
+}
+
+void UDimensionShiftSubsystem::ApplyDimensionLighting(UWorld* World, EGameDimension Dimension) const
+{
+	if (!World)
+	{
+		return;
+	}
+
+	// Pass 1: which environment types does the farm provide?
+	uint8 FarmTypesMask = 0;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (!It->ActorHasTag(FarmWorldTag))
+		{
+			continue;
+		}
+		for (UActorComponent* Comp : It->GetComponents())
+		{
+			const int32 TypeIndex = GetEnvironmentTypeIndex(Comp);
+			if (TypeIndex != INDEX_NONE)
+			{
+				FarmTypesMask |= (1 << TypeIndex);
+			}
+		}
+	}
+
+	const bool bFarming = (Dimension == EGameDimension::Farming);
+
+	// Pass 2: toggle visibility
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		const bool bIsFarmActor = It->ActorHasTag(FarmWorldTag);
+		for (UActorComponent* Comp : It->GetComponents())
+		{
+			const int32 TypeIndex = GetEnvironmentTypeIndex(Comp);
+			if (TypeIndex == INDEX_NONE)
+			{
+				continue;
+			}
+
+			bool bVisible;
+			if (bIsFarmActor)
+			{
+				bVisible = bFarming;
+			}
+			else
+			{
+				// Never leave the farm without a sun/sky: only hide combat types the farm replaces.
+				const bool bFarmReplacesType = (FarmTypesMask & (1 << TypeIndex)) != 0;
+				bVisible = !bFarming || !bFarmReplacesType;
+			}
+
+			if (USceneComponent* SceneComp = Cast<USceneComponent>(Comp))
+			{
+				SceneComp->SetVisibility(bVisible, true);
+			}
+		}
+	}
 }
 
 void UDimensionShiftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -147,10 +274,16 @@ bool UDimensionShiftSubsystem::CanShiftSafely(const FVector& SourceLocation, FVe
 	const FVector DimensionDelta = bPhysicallyInCombat ? FarmWorldOffset : -FarmWorldOffset;
 	FVector CandidateTarget = SourceLocation + DimensionDelta;
 
-	// When shifting into Farming, guarantee the prototype platform exists so raycast detects solid ground
+	// When shifting into Farming, make sure Lvl_Farm is fully streamed in; fall back to the prototype platform
 	if (bPhysicallyInCombat)
 	{
-		EnsurePrototypeFarmPlatform(const_cast<UWorld*>(World));
+		UWorld* MutableWorld = const_cast<UWorld*>(World);
+		const_cast<UDimensionShiftSubsystem*>(this)->EnsureFarmLevelLoaded(MutableWorld);
+		if (FarmLevelStreaming.IsValid() && !FarmLevelStreaming->IsLevelVisible())
+		{
+			MutableWorld->FlushLevelStreaming();
+		}
+		EnsurePrototypeFarmPlatform(MutableWorld);
 	}
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(DimensionShiftSafetySweep), false);
@@ -303,6 +436,9 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Dimension shift successful! New dimension: %s, Location: %s"),
 		*UEnum::GetValueAsString(CurrentDimension), *TargetLocation.ToString());
+
+	// Swap sun / sky / fog to match the new dimension
+	ApplyDimensionLighting(World, CurrentDimension);
 
 	// Broadcast event to notify audio, camera shake, visual effects, and UI
 	OnDimensionShifted.Broadcast(CurrentDimension, TargetLocation);

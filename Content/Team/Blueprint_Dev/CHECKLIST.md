@@ -49,17 +49,17 @@ When the player presses Shift, C++ instantly teleports the character. **Your job
 ### Phase 2: Building the Farming World (`Lvl_Farm.umap`)
 Build the tranquil, beautiful agricultural dimension.
 
-- [ ] **2.1 Create Level**:
+- [x] **2.1 Create Level**:
   - In `Maps/`, create a new level named `Lvl_Farm.umap`.
   - **Important**: This level will be placed at `Z = -20,000` inside `Lvl_MasterPersistent`.
-- [ ] **2.2 Terrain & Environment**:
+- [x] **2.2 Terrain & Environment**:
   - Sculpt green rolling hills, a dirt path, and a small river or pond.
   - Place wooden fences, hay bales, and a rustic farmhouse or barn.
-- [ ] **2.3 Atmosphere & Lighting**:
+- [x] **2.3 Atmosphere & Lighting**:
   - Directional Light: Warm golden sunlight (warm yellow/orange).
   - Skylight: Soft blue sky.
   - Ambient Sound: Bird chirping, gentle wind, rustling leaves.
-- [ ] **2.4 Soil Layout**:
+- [x] **2.4 Soil Layout**:
   - Flatten a central plot area for tilled soil rows where `BP_FarmPlot` actors will sit.
 
 ---
