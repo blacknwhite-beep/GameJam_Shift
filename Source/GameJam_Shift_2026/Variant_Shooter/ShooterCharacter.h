@@ -221,6 +221,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoToggleInventory();
 
+	/** Direct key fallback for toggling inventory while in the Farming dimension */
+	void DoToggleInventoryFromFarming();
+
 	/** Handles dimension shift input (Shift key) */
 	UFUNCTION(BlueprintCallable, Category = "Input|Dimension")
 	void HandleDimensionShift();

@@ -308,9 +308,12 @@ void UTarkovInventoryComponent::ToggleInventory()
 	if (bIsInventoryOpen)
 	{
 		// Open
-		if (!ActiveInventoryWidget && InventoryWidgetClass && PC)
+		if (!ActiveInventoryWidget && PC)
 		{
-			ActiveInventoryWidget = CreateWidget<UUserWidget>(PC, InventoryWidgetClass);
+			TSubclassOf<UUserWidget> WidgetClassToUse = InventoryWidgetClass
+				? InventoryWidgetClass
+				: TSubclassOf<UUserWidget>(UTarkovInventoryMainWidget::StaticClass());
+			ActiveInventoryWidget = CreateWidget<UUserWidget>(PC, WidgetClassToUse);
 		}
 
 		if (ActiveInventoryWidget)

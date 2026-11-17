@@ -249,6 +249,10 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	// Quick use medkit action (H key)
 	PlayerInputComponent->BindKey(EKeys::H, IE_Pressed, this, &AShooterCharacter::UseMedkit);
 
+	// Inventory toggle fallback in Farming dimension (since IMC_Weapons is removed while farming)
+	PlayerInputComponent->BindKey(EKeys::I, IE_Pressed, this, &AShooterCharacter::DoToggleInventoryFromFarming);
+	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AShooterCharacter::DoToggleInventoryFromFarming);
+
 }
 
 float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -407,6 +411,14 @@ void AShooterCharacter::DoToggleInventory()
 	if (TarkovInventory && !IsDead())
 	{
 		TarkovInventory->ToggleInventory();
+	}
+}
+
+void AShooterCharacter::DoToggleInventoryFromFarming()
+{
+	if (CurrentDimension == EGameDimension::Farming)
+	{
+		DoToggleInventory();
 	}
 }
 

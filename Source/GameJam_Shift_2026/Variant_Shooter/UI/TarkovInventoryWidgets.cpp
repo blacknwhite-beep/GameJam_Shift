@@ -531,7 +531,23 @@ void UTarkovInventoryMainWidget::NativeOnInitialized()
 
 FReply UTarkovInventoryMainWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 {
-	if (InKeyEvent.GetKey() == EKeys::R)
+	const FKey PressedKey = InKeyEvent.GetKey();
+	if (PressedKey == EKeys::I || PressedKey == EKeys::Tab || PressedKey == EKeys::Escape)
+	{
+		if (APawn* Pawn = GetOwningPlayerPawn())
+		{
+			if (UTarkovInventoryComponent* Comp = Pawn->FindComponentByClass<UTarkovInventoryComponent>())
+			{
+				if (Comp->IsInventoryOpen())
+				{
+					Comp->ToggleInventory();
+					return FReply::Handled();
+				}
+			}
+		}
+	}
+
+	if (PressedKey == EKeys::R)
 	{
 		if (APawn* Pawn = GetOwningPlayerPawn())
 		{
