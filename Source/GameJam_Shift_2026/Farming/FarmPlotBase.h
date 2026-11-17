@@ -10,6 +10,9 @@
 class UStaticMeshComponent;
 class USceneComponent;
 class UBoxComponent;
+class UMaterialInterface;
+class USoundBase;
+class UNiagaraSystem;
 
 /**
  * Base actor representing a cultivable soil plot in the Farming dimension.
@@ -41,9 +44,17 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> SoilMesh;
 
-	/** Static mesh for the growing crop plant (swapped or animated per stage in Blueprint) */
+	/** Static mesh for the growing crop plant (fallback cylinder when Sprout/Mature meshes are unassigned) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> CropMesh;
+
+	/** Optional sprout mesh shown during Planted / Sprout / Growing stages */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> Mesh_Sprout;
+
+	/** Optional mature crop mesh shown when crop reaches Mature stage */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> Mesh_Mature;
 
 	/** Interaction box volume to facilitate line-of-sight raycasts and player proximity */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
@@ -72,6 +83,34 @@ public:
 	/** Data configured for the harvest yield of the current crop */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Configuration")
 	FCropHarvestData HarvestYield;
+
+	/** If true, PlantSeed preserves HarvestYield & StageDuration configured on this Crop Blueprint */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Configuration")
+	bool bPreserveConfiguredYield = false;
+
+	/** Dry tilled soil material */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Visuals")
+	TObjectPtr<UMaterialInterface> DrySoilMaterial;
+
+	/** Darker wet soil material applied when watered */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Visuals")
+	TObjectPtr<UMaterialInterface> WetSoilMaterial;
+
+	/** Sound played when harvesting this crop */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Audio & VFX")
+	TObjectPtr<USoundBase> HarvestPopSound;
+
+	/** Optional Niagara system spawned when crop becomes Mature */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Audio & VFX")
+	TObjectPtr<UNiagaraSystem> MatureSparkleVFX;
+
+	/** Optional Niagara system spawned when plot is watered */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Audio & VFX")
+	TObjectPtr<UNiagaraSystem> WaterSplashVFX;
+
+	/** Floating text format shown on harvest (e.g. "+16 Shotgun Shells") */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Audio & VFX")
+	FString HarvestFloatingText;
 
 	// -------------------------------------------------------------------------
 	// Player Interaction API
@@ -170,6 +209,9 @@ public:
 protected:
 	/** Updates internal crop mesh scale and visibility for stage prototyping */
 	virtual void UpdateCropMeshForStage(ECropStage Stage);
+
+	/** Spawns temporary 3D world-space floating text above the plot */
+	void SpawnFloatingHarvestText(const FString& Text, const FColor& Color);
 
 	/** Timer handle managing the current growth cycle */
 	FTimerHandle GrowthTimerHandle;

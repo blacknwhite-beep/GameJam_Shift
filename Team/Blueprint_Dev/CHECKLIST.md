@@ -67,7 +67,7 @@ Build the tranquil, beautiful agricultural dimension.
 ### Phase 3: Creating Crop Blueprints
 C++ gives you `FarmPlotBase`. You use it to make as many fun crops as you want!
 
-- [ ] **3.1 Create "Shotgun Corn" (`BP_Crop_ShotgunCorn`)**:
+- [x] **3.1 Create "Shotgun Corn" (`BP_Crop_ShotgunCorn`)**:
   - In `Crops/`, right-click -> **Create Blueprint Class** -> Choose `FarmPlotBase` as parent.
   - In the Components panel, add 3 Static Mesh components:
     - `Mesh_Dirt`: Tilled soil mound.
@@ -88,9 +88,9 @@ C++ gives you `FarmPlotBase`. You use it to make as many fun crops as you want!
     - **`Event On Harvested`**:
       - Play pop sound effect.
       - Spawn floating text: `"+16 Shotgun Shells"`.
-- [ ] **3.2 Create "Rifle Wheat" (`BP_Crop_RifleWheat`)**:
+- [x] **3.2 Create "Rifle Wheat" (`BP_Crop_RifleWheat`)**:
   - Same steps, but set `Yield Item ID` to `"Item_Ammo_Rifle"` and `Yield Quantity` to `30`.
-- [ ] **3.3 Create "Medicinal Herb" (`BP_Crop_MedHerb`)**:
+- [x] **3.3 Create "Medicinal Herb" (`BP_Crop_MedHerb`)**:
   - Same steps, but yields `"Item_Medkit"` to restore player health in combat!
 
 ---
