@@ -19,6 +19,7 @@ class USoundBase;
 class UNiagaraSystem;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
+class USpotLightComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
@@ -36,6 +37,13 @@ class GAMEJAM_SHIFT_2026_API AShooterCharacter : public AGameJam_Shift_2026Chara
 	/** AI Noise emitter component */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UPawnNoiseEmitterComponent* PawnNoiseEmitter;
+
+	/** Tactical flashlight attached to the first-person camera (Combat/Zombie world only) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<USpotLightComponent> TacticalFlashlight;
+
+	/** True while the tactical flashlight is turned on */
+	bool bIsFlashlightOn = false;
 
 protected:
 
@@ -223,6 +231,10 @@ public:
 
 	/** Direct key fallback for toggling inventory while in the Farming dimension */
 	void DoToggleInventoryFromFarming();
+
+	/** Toggles the tactical flashlight (only works in Combat / Zombie dimension) */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Flashlight")
+	void ToggleFlashlight();
 
 	/** Handles dimension shift input (Shift key) */
 	UFUNCTION(BlueprintCallable, Category = "Input|Dimension")

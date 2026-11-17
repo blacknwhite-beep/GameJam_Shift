@@ -22,6 +22,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "Camera/CameraComponent.h"
+#include "Components/SpotLightComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "NiagaraFunctionLibrary.h"
@@ -71,6 +72,25 @@ AShooterCharacter::AShooterCharacter()
 
 	// create the Farming component
 	FarmingComponent = CreateDefaultSubobject<UFarmingComponent>(TEXT("FarmingComponent"));
+
+	// create the tactical flashlight attached to the first-person camera (off by default, Combat world only)
+	TacticalFlashlight = CreateDefaultSubobject<USpotLightComponent>(TEXT("TacticalFlashlight"));
+	if (GetFirstPersonCameraComponent())
+	{
+		TacticalFlashlight->SetupAttachment(GetFirstPersonCameraComponent());
+	}
+	else
+	{
+		TacticalFlashlight->SetupAttachment(RootComponent);
+	}
+	TacticalFlashlight->SetRelativeLocation(FVector(15.0f, 8.0f, -6.0f));
+	TacticalFlashlight->SetIntensityUnits(ELightUnits::Candelas);
+	TacticalFlashlight->SetIntensity(45.0f);
+	TacticalFlashlight->SetAttenuationRadius(2600.0f);
+	TacticalFlashlight->SetInnerConeAngle(14.0f);
+	TacticalFlashlight->SetOuterConeAngle(32.0f);
+	TacticalFlashlight->SetLightColor(FColor(235, 244, 255));
+	TacticalFlashlight->SetVisibility(false);
 
 	// default weapon input mapping context
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> WeaponContextFinder(TEXT("/Game/Variant_Shooter/Input/IMC_Weapons.IMC_Weapons"));
@@ -253,6 +273,9 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindKey(EKeys::I, IE_Pressed, this, &AShooterCharacter::DoToggleInventoryFromFarming);
 	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AShooterCharacter::DoToggleInventoryFromFarming);
 
+	// Tactical flashlight toggle (F key — Combat / Zombie dimension only)
+	PlayerInputComponent->BindKey(EKeys::F, IE_Pressed, this, &AShooterCharacter::ToggleFlashlight);
+
 }
 
 float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -422,6 +445,28 @@ void AShooterCharacter::DoToggleInventoryFromFarming()
 	}
 }
 
+void AShooterCharacter::ToggleFlashlight()
+{
+	if (IsDead() || !TacticalFlashlight)
+	{
+		return;
+	}
+
+	// Only allow flashlight activation in the Combat / Zombie dimension
+	if (CurrentDimension != EGameDimension::Combat)
+	{
+		if (bIsFlashlightOn)
+		{
+			bIsFlashlightOn = false;
+			TacticalFlashlight->SetVisibility(false);
+		}
+		return;
+	}
+
+	bIsFlashlightOn = !bIsFlashlightOn;
+	TacticalFlashlight->SetVisibility(bIsFlashlightOn);
+}
+
 void AShooterCharacter::HandleDimensionShift()
 {
 	if (IsDead())
@@ -503,6 +548,13 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 
 	if (NewDimension == EGameDimension::Farming)
 	{
+		// Automatically turn off tactical flashlight when leaving the dark Zombie world
+		if (bIsFlashlightOn && TacticalFlashlight)
+		{
+			bIsFlashlightOn = false;
+			TacticalFlashlight->SetVisibility(false);
+		}
+
 		// Entering Farming dimension: remove weapon mapping context so clicks don't trigger fire actions
 		if (WeaponMappingContext)
 		{
