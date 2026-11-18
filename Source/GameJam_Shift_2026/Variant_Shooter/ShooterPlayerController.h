@@ -58,6 +58,10 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UShooterBulletCounterUI> BulletCounterUI;
 
+	/** Persistent Gold economy HUD widget (visible in both Combat and Farming) */
+	UPROPERTY()
+	TObjectPtr<class UGoldHUDWidget> GoldHUDWidget;
+
 protected:
 
 	/** Gameplay Initialization */

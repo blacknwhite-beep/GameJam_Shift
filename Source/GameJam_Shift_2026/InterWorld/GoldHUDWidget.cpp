@@ -4,10 +4,10 @@
 #include "DimensionShiftSubsystem.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
-#include "Components/Overlay.h"
-#include "Components/OverlaySlot.h"
 #include "Components/TextBlock.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -25,16 +25,19 @@ void UGoldHUDWidget::NativeOnInitialized()
 		return;
 	}
 
-	UOverlay* Root = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("GoldRoot"));
-	WidgetTree->RootWidget = Root;
+	UCanvasPanel* RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("GoldRootCanvas"));
+	WidgetTree->RootWidget = RootCanvas;
 
 	UBorder* Badge = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("GoldBadge"));
-	Badge->SetBrushColor(FLinearColor(0.05f, 0.06f, 0.08f, 0.85f));
-	Badge->SetPadding(FMargin(16.0f, 8.0f));
-	UOverlaySlot* BadgeSlot = Root->AddChildToOverlay(Badge);
-	BadgeSlot->SetHorizontalAlignment(HAlign_Right);
-	BadgeSlot->SetVerticalAlignment(VAlign_Top);
-	BadgeSlot->SetPadding(FMargin(0.0f, 24.0f, 28.0f, 0.0f));
+	Badge->SetBrushColor(FLinearColor(0.05f, 0.06f, 0.08f, 0.90f));
+	Badge->SetPadding(FMargin(18.0f, 9.0f));
+	if (UCanvasPanelSlot* BadgeSlot = RootCanvas->AddChildToCanvas(Badge))
+	{
+		BadgeSlot->SetAnchors(FAnchors(1.0f, 0.0f));
+		BadgeSlot->SetAlignment(FVector2D(1.0f, 0.0f));
+		BadgeSlot->SetPosition(FVector2D(-28.0f, 22.0f));
+		BadgeSlot->SetAutoSize(true);
+	}
 
 	UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("GoldRow"));
 	Badge->SetContent(Row);

@@ -9,6 +9,7 @@
 #include "GameFramework/PlayerStart.h"
 #include "ShooterCharacter.h"
 #include "ShooterBulletCounterUI.h"
+#include "InterWorld/GoldHUDWidget.h"
 #include "GameJam_Shift_2026.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 
@@ -47,6 +48,14 @@ void AShooterPlayerController::BeginPlay()
 
 			UE_LOG(LogGameJam_Shift_2026, Error, TEXT("Could not spawn bullet counter widget."));
 
+		}
+
+		// Create the persistent Gold economy HUD widget
+		GoldHUDWidget = CreateWidget<UGoldHUDWidget>(this, UGoldHUDWidget::StaticClass());
+		if (GoldHUDWidget)
+		{
+			GoldHUDWidget->AddToViewport(20);
+			GoldHUDWidget->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
 		}
 		
 	}
