@@ -540,7 +540,10 @@ def build_static_mesh(name, slots, mats, build_fn):
 # ---------------------------------------------------------------------------------------------
 # Melee Zombie Blueprints (BP_Zombie_Slow & BP_Zombie_Fast)
 # ---------------------------------------------------------------------------------------------
-def create_zombie_blueprint(bp_name, hp, speed, damage, melee_range, cooldown, scale, skin_mat, attack_snd, template_mesh, template_anim):
+def create_zombie_blueprint(
+    bp_name, hp, speed, ref_anim_speed, use_run_anim, damage, melee_range, cooldown,
+    scale, skin_mat, attack_snd, zombie_mesh, anims_dict, attack_key, death_key, idle_key
+):
     bp_path = f"{ENEMY_DIR}/{bp_name}"
     if eal.does_asset_exist(bp_path):
         bp = unreal.load_asset(bp_path)
@@ -555,6 +558,9 @@ def create_zombie_blueprint(bp_name, hp, speed, damage, melee_range, cooldown, s
     cdo = unreal.get_default_object(bp.generated_class())
     cdo.set_editor_property("CurrentHP", hp)
     cdo.set_editor_property("ZombieMoveSpeed", speed)
+    cdo.set_editor_property("bUseRunAnim", use_run_anim)
+    cdo.set_editor_property("ReferenceAnimSpeed", ref_anim_speed)
+    cdo.set_editor_property("MeshYawOffset", -90.0)
     cdo.set_editor_property("MeleeDamage", damage)
     cdo.set_editor_property("MeleeRange", melee_range)
     cdo.set_editor_property("AttackCooldown", cooldown)
@@ -562,18 +568,24 @@ def create_zombie_blueprint(bp_name, hp, speed, damage, melee_range, cooldown, s
     if attack_snd:
         cdo.set_editor_property("AttackGroanSound", attack_snd)
 
+    for prop, key in (("IdleAnim", idle_key), ("WalkAnim", "walk"), ("RunAnim", "run"), ("AttackAnim", attack_key), ("DeathAnim", death_key)):
+        if anims_dict.get(key):
+            cdo.set_editor_property(prop, anims_dict[key])
+
     mesh_comp = cdo.get_editor_property("Mesh")
     if mesh_comp:
-        if template_mesh:
-            mesh_comp.set_skeletal_mesh(template_mesh)
-        if template_anim:
-            mesh_comp.set_anim_instance_class(template_anim)
-        mesh_comp.set_material(0, skin_mat)
+        if zombie_mesh:
+            mesh_comp.set_skeletal_mesh(zombie_mesh)
+        mesh_comp.set_anim_instance_class(None)
+        if skin_mat:
+            mesh_comp.set_material(0, skin_mat)
+        mesh_comp.set_editor_property("relative_location", unreal.Vector(0.0, 0.0, -90.0))
+        mesh_comp.set_editor_property("relative_rotation", unreal.Rotator(0.0, -90.0, 0.0))
         mesh_comp.set_editor_property("relative_scale3d", unreal.Vector(scale, scale, scale))
 
     unreal.BlueprintEditorLibrary.compile_blueprint(bp)
     eal.save_loaded_asset(bp)
-    log(f"Ready {bp_path} (HP={hp}, Speed={speed}, MeleeDmg={damage})")
+    log(f"Ready {bp_path} (HP={hp}, Speed={speed}, RefAnimSpeed={ref_anim_speed}, RunAnim={use_run_anim})")
     return bp
 
 
@@ -849,26 +861,33 @@ def main():
     attack_snd = import_wav("SFX_ZombieAttack", looping=False)
     amb_snd = import_wav("SFX_ZombieAmbience", looping=True)
 
-    template_mesh = unreal.load_asset("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple")
-    template_anim = unreal.load_class(None, "/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C")
-    if not template_mesh:
-        bp_npc = unreal.load_asset("/Game/Variant_Shooter/Blueprints/AI/BP_ShooterNPC")
-        if bp_npc:
-            npc_cdo = unreal.get_default_object(bp_npc.generated_class())
-            npc_mesh = npc_cdo.get_editor_property("Mesh")
-            if npc_mesh:
-                template_mesh = npc_mesh.get_editor_property("skeletal_mesh_asset")
-    log(f"Zombie humanoid template: mesh={template_mesh}, anim={template_anim}")
+    zombie_mesh = unreal.load_asset("/Game/Dev_Blueprint/Characters/Zombie/SK_Zombie")
+    mi_slow = unreal.load_asset("/Game/Dev_Blueprint/Characters/Zombie/Materials/MI_Zombie_Slow_Skin") or mats["zombie_slow"]
+    mi_fast = unreal.load_asset("/Game/Dev_Blueprint/Characters/Zombie/Materials/MI_Zombie_Fast_Skin") or mats["zombie_fast"]
+    anim_base = "/Game/Dev_Blueprint/Characters/Zombie/Animations"
+    z_anims = {
+        "idle1": unreal.load_asset(f"{anim_base}/Anim_Zombie_idle1"),
+        "idle2": unreal.load_asset(f"{anim_base}/Anim_Zombie_idle2"),
+        "walk": unreal.load_asset(f"{anim_base}/Anim_Zombie_walk"),
+        "run": unreal.load_asset(f"{anim_base}/Anim_Zombie_run"),
+        "atack1": unreal.load_asset(f"{anim_base}/Anim_Zombie_atack1"),
+        "atack2": unreal.load_asset(f"{anim_base}/Anim_Zombie_atack2"),
+        "death1": unreal.load_asset(f"{anim_base}/Anim_Zombie_death1"),
+        "death2": unreal.load_asset(f"{anim_base}/Anim_Zombie_death2"),
+    }
+    log(f"Custom Zombie model loaded: mesh={zombie_mesh}, anims={sum(1 for v in z_anims.values() if v)}/8")
 
     bp_slow = create_zombie_blueprint(
-        "BP_Zombie_Slow", hp=140.0, speed=200.0, damage=25.0, melee_range=175.0,
-        cooldown=1.35, scale=1.12, skin_mat=mats["zombie_slow"], attack_snd=attack_snd,
-        template_mesh=template_mesh, template_anim=template_anim,
+        "BP_Zombie_Slow", hp=140.0, speed=140.0, ref_anim_speed=140.0, use_run_anim=False,
+        damage=25.0, melee_range=165.0, cooldown=1.35, scale=1.08, skin_mat=mi_slow,
+        attack_snd=attack_snd, zombie_mesh=zombie_mesh, anims_dict=z_anims,
+        attack_key="atack1", death_key="death1", idle_key="idle1",
     )
     bp_fast = create_zombie_blueprint(
-        "BP_Zombie_Fast", hp=70.0, speed=480.0, damage=12.0, melee_range=160.0,
-        cooldown=0.70, scale=0.94, skin_mat=mats["zombie_fast"], attack_snd=attack_snd,
-        template_mesh=template_mesh, template_anim=template_anim,
+        "BP_Zombie_Fast", hp=70.0, speed=380.0, ref_anim_speed=380.0, use_run_anim=True,
+        damage=12.0, melee_range=155.0, cooldown=0.75, scale=0.96, skin_mat=mi_fast,
+        attack_snd=attack_snd, zombie_mesh=zombie_mesh, anims_dict=z_anims,
+        attack_key="atack2", death_key="death2", idle_key="idle2",
     )
 
     if eal.does_asset_exist(LEVEL_PATH):
