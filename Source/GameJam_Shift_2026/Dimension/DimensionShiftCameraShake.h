@@ -58,3 +58,49 @@ class GAMEJAM_SHIFT_2026_API UDimensionShiftCameraShake : public UCameraShakeBas
 public:
 	UDimensionShiftCameraShake(const FObjectInitializer& ObjectInitializer);
 };
+
+/**
+ * Clean rotational camera shake pattern for player damage/hit feedback (no location offset or FOV warp).
+ */
+UCLASS(EditInlineNew)
+class GAMEJAM_SHIFT_2026_API UHitCameraShakePattern : public UCameraShakePattern
+{
+	GENERATED_BODY()
+
+public:
+	UHitCameraShakePattern(const FObjectInitializer& ObjectInitializer);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Shake", meta = (ClampMin = "0.05"))
+	float Duration = 0.22f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Shake", meta = (ClampMin = "0.0"))
+	float PitchAmplitude = 2.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Shake", meta = (ClampMin = "0.0"))
+	float YawAmplitude = 1.6f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Shake", meta = (ClampMin = "0.0"))
+	float RollAmplitude = 2.8f;
+
+protected:
+	virtual void GetShakePatternInfoImpl(FCameraShakeInfo& OutInfo) const override;
+	virtual void StartShakePatternImpl(const FCameraShakePatternStartParams& Params) override;
+	virtual void UpdateShakePatternImpl(const FCameraShakePatternUpdateParams& Params, FCameraShakePatternUpdateResult& OutResult) override;
+	virtual bool IsFinishedImpl() const override;
+
+private:
+	float ElapsedTime = 0.0f;
+	bool bIsFinished = false;
+};
+
+/**
+ * Single-instance camera shake played when the player takes damage.
+ */
+UCLASS(Blueprintable)
+class GAMEJAM_SHIFT_2026_API UHitCameraShake : public UCameraShakeBase
+{
+	GENERATED_BODY()
+
+public:
+	UHitCameraShake(const FObjectInitializer& ObjectInitializer);
+};

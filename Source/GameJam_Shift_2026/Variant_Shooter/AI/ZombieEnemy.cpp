@@ -134,11 +134,10 @@ void AZombieEnemy::PerformMeleeAttack(AActor* TargetActor)
 		return;
 	}
 
-	// Small forward lunge impulse for tactile melee feel
+	// Stop horizontal velocity before striking so the zombie never shoves or pops the player's capsule
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
-		const FVector LungeDir = (TargetActor->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
-		MoveComp->AddImpulse(LungeDir * 240.0f, true);
+		MoveComp->StopMovementImmediately();
 	}
 
 	if (AttackGroanSound)

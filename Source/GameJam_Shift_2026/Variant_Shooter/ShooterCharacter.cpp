@@ -295,6 +295,15 @@ float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 	// Reduce HP
 	CurrentHP -= Damage;
 
+	// Play clean rotational camera shake on hit
+	if (Damage > 0.0f)
+	{
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			PC->ClientStartCameraShake(UHitCameraShake::StaticClass(), 1.0f);
+		}
+	}
+
 	// Have we depleted HP?
 	if (CurrentHP <= 0.0f)
 	{

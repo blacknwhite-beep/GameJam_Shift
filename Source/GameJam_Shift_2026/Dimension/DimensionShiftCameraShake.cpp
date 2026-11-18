@@ -60,3 +60,61 @@ UDimensionShiftCameraShake::UDimensionShiftCameraShake(const FObjectInitializer&
 	bSingleInstance = false;
 	SetRootShakePattern(CreateDefaultSubobject<UDimensionShiftCameraShakePattern>(TEXT("DimensionShiftShakePattern")));
 }
+
+UHitCameraShakePattern::UHitCameraShakePattern(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+}
+
+void UHitCameraShakePattern::GetShakePatternInfoImpl(FCameraShakeInfo& OutInfo) const
+{
+	OutInfo.Duration = FCameraShakeDuration(Duration);
+}
+
+void UHitCameraShakePattern::StartShakePatternImpl(const FCameraShakePatternStartParams& Params)
+{
+	ElapsedTime = 0.0f;
+	bIsFinished = false;
+}
+
+void UHitCameraShakePattern::UpdateShakePatternImpl(const FCameraShakePatternUpdateParams& Params, FCameraShakePatternUpdateResult& OutResult)
+{
+	if (bIsFinished)
+	{
+		return;
+	}
+
+	ElapsedTime += Params.DeltaTime;
+	if (Duration <= KINDA_SMALL_NUMBER || ElapsedTime >= Duration)
+	{
+		bIsFinished = true;
+		OutResult.Rotation = FRotator::ZeroRotator;
+		OutResult.Location = FVector::ZeroVector;
+		OutResult.FOV = 0.0f;
+		return;
+	}
+
+	const float Alpha = FMath::Clamp(ElapsedTime / Duration, 0.0f, 1.0f);
+	const float Decay = FMath::Pow(1.0f - Alpha, 1.8f);
+
+	// Smooth rotational impact jolt (zero location/FOV change so it never feels like a teleport)
+	const float Pitch = PitchAmplitude * FMath::Sin(ElapsedTime * 52.0f) * Decay;
+	const float Yaw = YawAmplitude * FMath::Sin(ElapsedTime * 41.0f + 0.9f) * Decay;
+	const float Roll = RollAmplitude * FMath::Sin(ElapsedTime * 48.0f + 0.4f) * Decay;
+
+	OutResult.Rotation = FRotator(Pitch, Yaw, Roll);
+	OutResult.Location = FVector::ZeroVector;
+	OutResult.FOV = 0.0f;
+}
+
+bool UHitCameraShakePattern::IsFinishedImpl() const
+{
+	return bIsFinished;
+}
+
+UHitCameraShake::UHitCameraShake(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+{
+	bSingleInstance = true;
+	SetRootShakePattern(CreateDefaultSubobject<UHitCameraShakePattern>(TEXT("HitShakePattern")));
+}
