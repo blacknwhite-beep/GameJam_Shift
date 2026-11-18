@@ -7,7 +7,9 @@
 #include "DimensionShiftSubsystem.h"
 #include "DimensionShiftCameraShake.h"
 #include "FarmingComponent.h"
+#include "Farming/BarnShopActor.h"
 #include "InterWorldBridge.h"
+#include "EngineUtils.h"
 #include "GameJam_Shift_2026.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -276,6 +278,10 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	// Tactical flashlight toggle (F key — Combat / Zombie dimension only)
 	PlayerInputComponent->BindKey(EKeys::F, IE_Pressed, this, &AShooterCharacter::ToggleFlashlight);
 
+	// Barn Shop interaction (B key) & Plot placement cancel (Right Mouse Button)
+	PlayerInputComponent->BindKey(EKeys::B, IE_Pressed, this, &AShooterCharacter::InteractBarnShop);
+	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AShooterCharacter::CancelPlotPlacementInput);
+
 }
 
 float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -339,9 +345,34 @@ void AShooterCharacter::DoJumpEnd()
 
 void AShooterCharacter::DoStartFiring()
 {
-	// In Farming dimension, route Left Click to FarmingComponent!
+	// In Farming dimension, route Left Click to plot placement, Barn Shop, or FarmingComponent!
 	if (CurrentDimension == EGameDimension::Farming)
 	{
+		if (FarmingComponent && FarmingComponent->IsPlacingPlot())
+		{
+			FarmingComponent->ConfirmPlotPlacement();
+			return;
+		}
+
+		// Check if aiming at the Barn Shop counter
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			FVector ViewLoc;
+			FRotator ViewRot;
+			PC->GetPlayerViewPoint(ViewLoc, ViewRot);
+			FHitResult Hit;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(BarnShopTrace), false);
+			Params.AddIgnoredActor(this);
+			if (GetWorld()->LineTraceSingleByChannel(Hit, ViewLoc, ViewLoc + ViewRot.Vector() * 480.0f, ECC_Visibility, Params))
+			{
+				if (ABarnShopActor* Shop = Cast<ABarnShopActor>(Hit.GetActor()))
+				{
+					Shop->OpenBarnShop(PC);
+					return;
+				}
+			}
+		}
+
 		if (FarmingComponent)
 		{
 			FarmingComponent->UseActiveTool();
@@ -465,6 +496,38 @@ void AShooterCharacter::ToggleFlashlight()
 
 	bIsFlashlightOn = !bIsFlashlightOn;
 	TacticalFlashlight->SetVisibility(bIsFlashlightOn);
+}
+
+void AShooterCharacter::InteractBarnShop()
+{
+	if (IsDead() || CurrentDimension != EGameDimension::Farming)
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC || !GetWorld())
+	{
+		return;
+	}
+
+	for (TActorIterator<ABarnShopActor> It(GetWorld()); It; ++It)
+	{
+		ABarnShopActor* Shop = *It;
+		if (Shop && (Shop->IsPlayerInRange() || FVector::Dist(GetActorLocation(), Shop->GetActorLocation()) <= 500.0f))
+		{
+			Shop->OpenBarnShop(PC);
+			return;
+		}
+	}
+}
+
+void AShooterCharacter::CancelPlotPlacementInput()
+{
+	if (CurrentDimension == EGameDimension::Farming && FarmingComponent && FarmingComponent->IsPlacingPlot())
+	{
+		FarmingComponent->CancelPlotPlacement();
+	}
 }
 
 void AShooterCharacter::HandleDimensionShift()

@@ -9,6 +9,7 @@
 
 class AFarmPlotBase;
 class UFarmingHUDWidget;
+class UMaterialInstanceDynamic;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFarmToolChanged, EFarmTool, NewTool);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnCropHarvested, FName, ItemID, int32, Quantity);
@@ -28,6 +29,7 @@ public:
 	UFarmingComponent();
 
 	virtual void BeginPlay() override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	// -------------------------------------------------------------------------
 	// Tool & Seed Properties
@@ -41,9 +43,41 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Seeds")
 	FName SelectedSeedID;
 
-	/** Available seeds that the player can cycle through */
+	/** Available seeds that the player currently owns and can cycle through */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Seeds")
 	TArray<FName> AvailableSeeds;
+
+	/** Remaining count per purchased seed type */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Farming|Seeds")
+	TMap<FName, int32> SeedCounts;
+
+	/** Adds purchased seeds into the player's farming rotation */
+	UFUNCTION(BlueprintCallable, Category = "Farming|Seeds")
+	void AddPurchasedSeed(FName SeedID, int32 Quantity = 1);
+
+	/** Returns the owned count for a specific seed */
+	UFUNCTION(BlueprintPure, Category = "Farming|Seeds")
+	int32 GetSeedCount(FName SeedID) const;
+
+	// -------------------------------------------------------------------------
+	// Farm Plot Placement Simulator
+	// -------------------------------------------------------------------------
+
+	/** Starts placing a Farm Plot purchased from the Barn Shop */
+	UFUNCTION(BlueprintCallable, Category = "Farming|Placement")
+	void StartPlotPlacement(FGuid PlotItemId);
+
+	/** Confirms placement, spawning a full AFarmPlotBase and consuming the inventory item */
+	UFUNCTION(BlueprintCallable, Category = "Farming|Placement")
+	bool ConfirmPlotPlacement();
+
+	/** Cancels placement mode without consuming the inventory item */
+	UFUNCTION(BlueprintCallable, Category = "Farming|Placement")
+	void CancelPlotPlacement();
+
+	/** Returns true while the player is positioning a green plot preview */
+	UFUNCTION(BlueprintPure, Category = "Farming|Placement")
+	bool IsPlacingPlot() const { return bIsPlacingPlot; }
 
 	/** Index of currently selected seed in AvailableSeeds */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Farming|Seeds")
@@ -124,4 +158,16 @@ public:
 protected:
 	/** Internal execution of tool actions on a valid plot */
 	void ExecuteToolOnPlot(AFarmPlotBase* Plot);
+
+	void UpdatePlotPreviewTransform();
+
+	bool bIsPlacingPlot = false;
+	bool bPlacementValid = false;
+	FGuid PendingPlotItemId;
+
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> PlotPreviewActor;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> PlotPreviewMID;
 };

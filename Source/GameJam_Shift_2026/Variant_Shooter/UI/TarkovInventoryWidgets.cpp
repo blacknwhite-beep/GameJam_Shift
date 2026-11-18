@@ -3,6 +3,7 @@
 
 #include "TarkovInventoryWidgets.h"
 #include "Inventory/TarkovInventoryComponent.h"
+#include "Farming/FarmingComponent.h"
 #include "GameFramework/Pawn.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Border.h"
@@ -41,6 +42,33 @@ FReply UTarkovInventoryItemWidget::NativeOnMouseButtonDown(const FGeometry& InGe
 {
 	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
+		const FString LabelStr = ItemLabel ? ItemLabel->GetText().ToString() : FString();
+		if (LabelStr.Contains(TEXT("Farm Plot"), ESearchCase::IgnoreCase))
+		{
+			if (APawn* Pawn = GetOwningPlayerPawn())
+			{
+				if (Pawn->GetActorLocation().Z < -10000.0f)
+				{
+					if (UTarkovInventoryComponent* Comp = Pawn->FindComponentByClass<UTarkovInventoryComponent>())
+					{
+						if (Comp->IsInventoryOpen())
+						{
+							Comp->ToggleInventory();
+						}
+					}
+					if (UFarmingComponent* FarmComp = Pawn->FindComponentByClass<UFarmingComponent>())
+					{
+						FarmComp->StartPlotPlacement(ItemId);
+						return FReply::Handled();
+					}
+				}
+				else if (GEngine)
+				{
+					GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Orange, TEXT("[FARM] Shift to the Farm world [Left Shift] to place your Farm Plot!"));
+				}
+			}
+		}
+
 		return UWidgetBlueprintLibrary::DetectDragIfPressed(InMouseEvent, this, EKeys::LeftMouseButton).NativeReply;
 	}
 	return Super::NativeOnMouseButtonDown(InGeometry, InMouseEvent);

@@ -236,6 +236,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Flashlight")
 	void ToggleFlashlight();
 
+	/** Opens the Barn Shop if nearby in the Farming dimension */
+	void InteractBarnShop();
+
+	/** Cancels active Farm Plot placement preview */
+	void CancelPlotPlacementInput();
+
 	/** Handles dimension shift input (Shift key) */
 	UFUNCTION(BlueprintCallable, Category = "Input|Dimension")
 	void HandleDimensionShift();

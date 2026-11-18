@@ -13,6 +13,7 @@
 #include "Engine/Engine.h"
 #include "GameFramework/WorldSettings.h"
 #include "Farming/FarmPlotBase.h"
+#include "Farming/BarnShopActor.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/LevelStreamingDynamic.h"
 #include "Misc/PackageName.h"
@@ -88,7 +89,22 @@ void UDimensionShiftSubsystem::HandleFarmLevelShown()
 {
 	if (FarmLevelStreaming.IsValid())
 	{
-		ApplyDimensionLighting(FarmLevelStreaming->GetWorld(), CurrentDimension);
+		UWorld* World = FarmLevelStreaming->GetWorld();
+		ApplyDimensionLighting(World, CurrentDimension);
+
+		// Ensure Barn Shop counter exists at the Barn front entrance (-700, -2780, -20000)
+		if (World)
+		{
+			TArray<AActor*> Shops;
+			UGameplayStatics::GetAllActorsOfClass(World, ABarnShopActor::StaticClass(), Shops);
+			if (Shops.Num() == 0)
+			{
+				FActorSpawnParameters Params;
+				Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+				World->SpawnActor<ABarnShopActor>(ABarnShopActor::StaticClass(), FVector(-700.0f, -2780.0f, -20000.0f), FRotator::ZeroRotator, Params);
+				UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned ABarnShopActor at Barn entrance."));
+			}
+		}
 	}
 }
 

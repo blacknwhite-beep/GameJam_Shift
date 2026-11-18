@@ -4,26 +4,25 @@
 #include "FarmPlotBase.h"
 #include "FarmingHUDWidgets.h"
 #include "InterWorldBridge.h"
+#include "Inventory/TarkovInventoryComponent.h"
 #include "GameJam_Shift_2026.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Engine/Engine.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 #include "CollisionQueryParams.h"
 
 UFarmingComponent::UFarmingComponent()
 	: ActiveTool(EFarmTool::None)
-	, SelectedSeedID(FName("Seed_ShotgunAmmo"))
+	, SelectedSeedID(NAME_None)
 	, SelectedSeedIndex(0)
 	, InteractionDistance(400.0f)
 {
-	PrimaryComponentTick.bCanEverTick = false;
-
-	// Default prototype seed catalog
-	AvailableSeeds.Add(FName("Seed_ShotgunAmmo"));
-	AvailableSeeds.Add(FName("Seed_RifleAmmo"));
-	AvailableSeeds.Add(FName("Seed_PistolAmmo"));
-	AvailableSeeds.Add(FName("Seed_Medkit"));
+	PrimaryComponentTick.bCanEverTick = true;
 }
 
 void UFarmingComponent::BeginPlay()
@@ -34,6 +33,16 @@ void UFarmingComponent::BeginPlay()
 	{
 		SelectedSeedIndex = 0;
 		SelectedSeedID = AvailableSeeds[0];
+	}
+}
+
+void UFarmingComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (bIsPlacingPlot)
+	{
+		UpdatePlotPreviewTransform();
 	}
 }
 
@@ -138,9 +147,45 @@ void UFarmingComponent::ExecuteToolOnPlot(AFarmPlotBase* Plot)
 	{
 		if (Plot->CanPlant())
 		{
-			if (Plot->PlantSeed(SelectedSeedID))
+			if (SelectedSeedID.IsNone() || GetSeedCount(SelectedSeedID) <= 0)
 			{
-				OnSeedPlanted.Broadcast(Plot, SelectedSeedID);
+				if (GEngine)
+				{
+					GEngine->AddOnScreenDebugMessage(
+						9124, 3.0f, FColor::Orange,
+						TEXT("[FARM] No seeds in pouch! Visit the Barn Shop to purchase seeds.")
+					);
+				}
+				return;
+			}
+
+			const FName SeedToPlant = SelectedSeedID;
+			if (Plot->PlantSeed(SeedToPlant))
+			{
+				if (int32* CountPtr = SeedCounts.Find(SeedToPlant))
+				{
+					*CountPtr = FMath::Max(0, *CountPtr - 1);
+					if (*CountPtr == 0)
+					{
+						SeedCounts.Remove(SeedToPlant);
+						AvailableSeeds.Remove(SeedToPlant);
+						if (AvailableSeeds.Num() > 0)
+						{
+							SelectedSeedIndex = SelectedSeedIndex % AvailableSeeds.Num();
+							SelectedSeedID = AvailableSeeds[SelectedSeedIndex];
+						}
+						else
+						{
+							SelectedSeedIndex = 0;
+							SelectedSeedID = NAME_None;
+						}
+					}
+				}
+				if (ActiveFarmingHUD)
+				{
+					ActiveFarmingHUD->RefreshHUD();
+				}
+				OnSeedPlanted.Broadcast(Plot, SeedToPlant);
 			}
 		}
 		else if (Plot->CanHarvest())
@@ -301,6 +346,15 @@ void UFarmingComponent::CycleSeed(bool bNext)
 {
 	if (AvailableSeeds.Num() == 0)
 	{
+		SelectedSeedID = NAME_None;
+		SelectedSeedIndex = 0;
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				9123, 2.5f, FColor::Orange,
+				TEXT("[FARM SEED] No seeds purchased! Visit the Barn Shop to buy seeds.")
+			);
+		}
 		return;
 	}
 
@@ -315,15 +369,233 @@ void UFarmingComponent::CycleSeed(bool bNext)
 
 	SelectedSeedID = AvailableSeeds[SelectedSeedIndex];
 
+	if (ActiveFarmingHUD)
+	{
+		ActiveFarmingHUD->RefreshHUD();
+	}
+
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(
 			9123, 3.0f, FColor::Green,
-			FString::Printf(TEXT(">>> [FARM SEED] Selected: %s (Press T to cycle)"), *SelectedSeedID.ToString())
+			FString::Printf(TEXT(">>> [FARM SEED] Selected: %s (x%d)"), *SelectedSeedID.ToString(), GetSeedCount(SelectedSeedID))
 		);
 	}
 
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("FarmingComponent: Selected seed %s"), *SelectedSeedID.ToString());
+}
+
+void UFarmingComponent::AddPurchasedSeed(FName SeedID, int32 Quantity)
+{
+	if (SeedID.IsNone() || Quantity <= 0)
+	{
+		return;
+	}
+
+	int32& Count = SeedCounts.FindOrAdd(SeedID);
+	Count += Quantity;
+
+	if (!AvailableSeeds.Contains(SeedID))
+	{
+		AvailableSeeds.Add(SeedID);
+	}
+
+	if (SelectedSeedID.IsNone())
+	{
+		SelectedSeedIndex = AvailableSeeds.Find(SeedID);
+		SelectedSeedID = SeedID;
+	}
+
+	if (ActiveFarmingHUD)
+	{
+		ActiveFarmingHUD->RefreshHUD();
+	}
+}
+
+int32 UFarmingComponent::GetSeedCount(FName SeedID) const
+{
+	if (const int32* Found = SeedCounts.Find(SeedID))
+	{
+		return *Found;
+	}
+	return 0;
+}
+
+void UFarmingComponent::StartPlotPlacement(FGuid PlotItemId)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	CancelPlotPlacement();
+
+	bIsPlacingPlot = true;
+	bPlacementValid = false;
+	PendingPlotItemId = PlotItemId;
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	PlotPreviewActor = World->SpawnActor<AActor>(AActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, Params);
+	if (PlotPreviewActor)
+	{
+		UStaticMeshComponent* PreviewMesh = NewObject<UStaticMeshComponent>(PlotPreviewActor, TEXT("PlotPreviewMesh"));
+		PreviewMesh->RegisterComponent();
+		PlotPreviewActor->SetRootComponent(PreviewMesh);
+		PreviewMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		PreviewMesh->SetCastShadow(false);
+
+		UStaticMesh* MoundMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Meshes/SM_Crop_DirtMound.SM_Crop_DirtMound"));
+		if (MoundMesh)
+		{
+			PreviewMesh->SetStaticMesh(MoundMesh);
+			PreviewMesh->SetWorldScale3D(FVector(1.0f, 1.0f, 1.0f));
+		}
+		else if (UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
+		{
+			PreviewMesh->SetStaticMesh(CubeMesh);
+			PreviewMesh->SetWorldScale3D(FVector(1.2f, 1.2f, 0.16f));
+		}
+
+		UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
+		if (BaseMat)
+		{
+			PlotPreviewMID = UMaterialInstanceDynamic::Create(BaseMat, PlotPreviewActor);
+			if (PlotPreviewMID)
+			{
+				PlotPreviewMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.10f, 0.95f, 0.30f, 1.0f));
+				PlotPreviewMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.08f, 0.85f, 0.25f, 1.0f));
+				PreviewMesh->SetMaterial(0, PlotPreviewMID);
+			}
+		}
+	}
+
+	UpdatePlotPreviewTransform();
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(9125, 4.0f, FColor::Green, TEXT(">>> [PLOT PLACEMENT] Left Click to confirm plot placement | Right Click to cancel"));
+	}
+}
+
+void UFarmingComponent::UpdatePlotPreviewTransform()
+{
+	if (!PlotPreviewActor || !GetOwner() || !GetWorld())
+	{
+		return;
+	}
+
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	APlayerController* PC = OwnerPawn ? Cast<APlayerController>(OwnerPawn->GetController()) : nullptr;
+
+	FVector ViewLoc = GetOwner()->GetActorLocation() + FVector(0.0f, 0.0f, 60.0f);
+	FRotator ViewRot = GetOwner()->GetActorRotation();
+	if (PC)
+	{
+		PC->GetPlayerViewPoint(ViewLoc, ViewRot);
+	}
+
+	const FVector Forward2D = FVector(ViewRot.Vector().X, ViewRot.Vector().Y, 0.0f).GetSafeNormal();
+	const FVector DesiredXY = GetOwner()->GetActorLocation() + Forward2D * 260.0f;
+
+	FHitResult GroundHit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(PlotPreviewGround), false);
+	Params.AddIgnoredActor(GetOwner());
+	Params.AddIgnoredActor(PlotPreviewActor);
+
+	const bool bHitGround = GetWorld()->LineTraceSingleByChannel(
+		GroundHit,
+		FVector(DesiredXY.X, DesiredXY.Y, ViewLoc.Z + 300.0f),
+		FVector(DesiredXY.X, DesiredXY.Y, ViewLoc.Z - 600.0f),
+		ECC_WorldStatic,
+		Params
+	);
+
+	bPlacementValid = bHitGround && (GetOwner()->GetActorLocation().Z < -10000.0f);
+	const FVector FinalLoc = bHitGround
+		? GroundHit.ImpactPoint
+		: FVector(DesiredXY.X, DesiredXY.Y, GetOwner()->GetActorLocation().Z - 88.0f);
+
+	PlotPreviewActor->SetActorLocationAndRotation(FinalLoc, FRotator(0.0f, ViewRot.Yaw, 0.0f));
+
+	if (PlotPreviewMID)
+	{
+		const FLinearColor Tint = bPlacementValid ? FLinearColor(0.10f, 0.95f, 0.30f, 1.0f) : FLinearColor(0.95f, 0.15f, 0.15f, 1.0f);
+		const FLinearColor Glow = bPlacementValid ? FLinearColor(0.08f, 0.85f, 0.25f, 1.0f) : FLinearColor(0.85f, 0.10f, 0.10f, 1.0f);
+		PlotPreviewMID->SetVectorParameterValue(TEXT("Color"), Tint);
+		PlotPreviewMID->SetVectorParameterValue(TEXT("Emissive"), Glow);
+	}
+}
+
+bool UFarmingComponent::ConfirmPlotPlacement()
+{
+	if (!bIsPlacingPlot || !bPlacementValid || !PlotPreviewActor || !GetWorld())
+	{
+		return false;
+	}
+
+	const FVector SpawnLoc = PlotPreviewActor->GetActorLocation();
+	const FRotator SpawnRot = PlotPreviewActor->GetActorRotation();
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AFarmPlotBase* NewPlot = GetWorld()->SpawnActor<AFarmPlotBase>(AFarmPlotBase::StaticClass(), SpawnLoc, SpawnRot, Params);
+	if (NewPlot)
+	{
+		if (UStaticMesh* MoundMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Meshes/SM_Crop_DirtMound.SM_Crop_DirtMound")))
+		{
+			if (NewPlot->SoilMesh)
+			{
+				NewPlot->SoilMesh->SetStaticMesh(MoundMesh);
+				NewPlot->SoilMesh->SetRelativeLocation(FVector::ZeroVector);
+				NewPlot->SoilMesh->SetRelativeScale3D(FVector::OneVector);
+			}
+		}
+		if (UMaterialInterface* DryMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/MI_Crop_DirtDry.MI_Crop_DirtDry")))
+		{
+			NewPlot->DrySoilMaterial = DryMat;
+			if (NewPlot->SoilMesh)
+			{
+				NewPlot->SoilMesh->SetMaterial(0, DryMat);
+			}
+		}
+		if (UMaterialInterface* WetMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/MI_Crop_DirtWet.MI_Crop_DirtWet")))
+		{
+			NewPlot->WetSoilMaterial = WetMat;
+		}
+	}
+
+	// Remove the consumed "Farm Plot" item from Tarkov Backpack
+	if (AActor* OwnerActor = GetOwner())
+	{
+		if (UTarkovInventoryComponent* Inv = OwnerActor->FindComponentByClass<UTarkovInventoryComponent>())
+		{
+			Inv->RemoveItem(PendingPlotItemId);
+		}
+	}
+
+	CancelPlotPlacement();
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(9125, 3.0f, FColor::Green, TEXT(">>> [FARM] New Farm Plot placed!"));
+	}
+	return true;
+}
+
+void UFarmingComponent::CancelPlotPlacement()
+{
+	bIsPlacingPlot = false;
+	bPlacementValid = false;
+	PendingPlotItemId.Invalidate();
+
+	if (PlotPreviewActor)
+	{
+		PlotPreviewActor->Destroy();
+		PlotPreviewActor = nullptr;
+	}
+	PlotPreviewMID = nullptr;
 }
 
 void UFarmingComponent::SetSelectedSeed(FName NewSeedID)

@@ -442,11 +442,20 @@ void UFarmingHUDWidget::RefreshHUD()
 	const FName SelectedSeed = FarmingComp->GetSelectedSeedID();
 	if (ActiveSeedText && SeedYieldText)
 	{
-		FString SeedDisplay;
-		FString YieldDisplay;
-		DescribeSeed(SelectedSeed, SeedDisplay, YieldDisplay);
-		ActiveSeedText->SetText(FText::FromString(SeedDisplay));
-		SeedYieldText->SetText(FText::FromString(YieldDisplay));
+		if (SelectedSeed.IsNone())
+		{
+			ActiveSeedText->SetText(FText::FromString(TEXT("NO SEEDS OWNED")));
+			SeedYieldText->SetText(FText::FromString(TEXT("Visit the Barn Shop [Left Click / B] to buy seeds!")));
+		}
+		else
+		{
+			FString SeedDisplay;
+			FString YieldDisplay;
+			DescribeSeed(SelectedSeed, SeedDisplay, YieldDisplay);
+			const int32 OwnedCount = FarmingComp->GetSeedCount(SelectedSeed);
+			ActiveSeedText->SetText(FText::FromString(FString::Printf(TEXT("%s  [x%d]"), *SeedDisplay, OwnedCount)));
+			SeedYieldText->SetText(FText::FromString(YieldDisplay));
+		}
 	}
 
 	// 3. Update Targeted Plot Prompt & Reticle
