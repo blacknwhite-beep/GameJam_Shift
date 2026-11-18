@@ -20,6 +20,7 @@ class UNiagaraSystem;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class USpotLightComponent;
+class UShooterWeaponWheelWidget;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
@@ -123,10 +124,19 @@ protected:
 	FName DeathTag = FName("Dead");
 
 	/** List of weapons picked up by the character */
+	UPROPERTY(Transient)
 	TArray<AShooterWeapon*> OwnedWeapons;
 
 	/** Weapon currently equipped and ready to shoot with */
+	UPROPERTY(Transient)
 	TObjectPtr<AShooterWeapon> CurrentWeapon;
+
+	/** 7-Slot Radial Weapon Wheel widget (shown while holding [TAB] in Combat) */
+	UPROPERTY(Transient)
+	TObjectPtr<UShooterWeaponWheelWidget> WeaponWheelWidget;
+
+	/** True while the [TAB] radial weapon wheel is currently open */
+	bool bIsWeaponWheelOpen = false;
 
 	UPROPERTY(EditAnywhere, Category ="Destruction", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
 	float RespawnTime = 5.0f;
@@ -258,7 +268,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Farming")
 	UFarmingComponent* GetFarmingComponent() const { return FarmingComponent; }
 
-	/** Farming tool direct selection and cycling actions */
+	/**Farming tool direct selection and cycling actions */
 	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
 	void SelectTool1();
 
@@ -270,6 +280,34 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
 	void SelectTool4();
+
+	UFUNCTION(BlueprintCallable, Category = "Weapons|Input")
+	void SelectWeaponSlot5();
+
+	UFUNCTION(BlueprintCallable, Category = "Weapons|Input")
+	void SelectWeaponSlot6();
+
+	UFUNCTION(BlueprintCallable, Category = "Weapons|Input")
+	void SelectWeaponSlot7();
+
+	/** Spawns all 7 Gun Pack weapons into OwnedWeapons at startup (no purchasing restriction) */
+	void SpawnAllGunPackWeapons();
+
+	/** Equips an owned weapon by index (0..6) */
+	UFUNCTION(BlueprintCallable, Category = "Weapons")
+	void EquipWeaponByIndex(int32 WeaponIndex);
+
+	/** Returns the character's owned weapons array (the 7 guns in the radial wheel) */
+	const TArray<AShooterWeapon*>& GetOwnedWeapons() const { return OwnedWeapons; }
+
+	/** Opens the 7-slot radial weapon wheel when [TAB] is pressed/held in Combat */
+	void OnTabPressed();
+
+	/** Closes the 7-slot radial weapon wheel and equips the highlighted gun when [TAB] is released */
+	void OnTabReleased();
+
+	/** Returns true while the radial weapon wheel is open */
+	bool IsWeaponWheelOpen() const { return bIsWeaponWheelOpen; }
 
 	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
 	void CycleToolNext();

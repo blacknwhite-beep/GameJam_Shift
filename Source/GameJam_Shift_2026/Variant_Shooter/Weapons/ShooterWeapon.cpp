@@ -13,6 +13,8 @@
 #include "TimerManager.h"
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Character.h"
 
@@ -38,6 +40,20 @@ AShooterWeapon::AShooterWeapon()
 	ThirdPersonMesh->SetCollisionProfileName(FName("NoCollision"));
 	ThirdPersonMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::WorldSpaceRepresentation);
 	ThirdPersonMesh->bOwnerNoSee = true;
+
+	// create custom static mesh components for the 3D Gun Pack models
+	FirstPersonGunMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FirstPersonGunMesh"));
+	FirstPersonGunMesh->SetupAttachment(FirstPersonMesh);
+	FirstPersonGunMesh->SetCollisionProfileName(FName("NoCollision"));
+	FirstPersonGunMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::FirstPerson);
+	FirstPersonGunMesh->bOnlyOwnerSee = true;
+	FirstPersonGunMesh->SetCastShadow(false);
+
+	ThirdPersonGunMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ThirdPersonGunMesh"));
+	ThirdPersonGunMesh->SetupAttachment(ThirdPersonMesh);
+	ThirdPersonGunMesh->SetCollisionProfileName(FName("NoCollision"));
+	ThirdPersonGunMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::WorldSpaceRepresentation);
+	ThirdPersonGunMesh->bOwnerNoSee = true;
 }
 
 void AShooterWeapon::BeginPlay()
@@ -55,7 +71,7 @@ void AShooterWeapon::BeginPlay()
 	const FString ClassStr = GetClass()->GetName();
 	if (ClassStr.Contains(TEXT("Pistol"), ESearchCase::IgnoreCase))
 	{
-		MagazineSize = FMath::Clamp(MagazineSize, 1, 12);
+		MagazineSize = FMath::Clamp(MagazineSize, 1, 15);
 	}
 	else if (ClassStr.Contains(TEXT("Shotgun"), ESearchCase::IgnoreCase) || ClassStr.Contains(TEXT("Grenade"), ESearchCase::IgnoreCase) || ClassStr.Contains(TEXT("Launcher"), ESearchCase::IgnoreCase))
 	{
@@ -63,7 +79,7 @@ void AShooterWeapon::BeginPlay()
 	}
 	else if (ClassStr.Contains(TEXT("Rifle"), ESearchCase::IgnoreCase))
 	{
-		MagazineSize = FMath::Clamp(MagazineSize, 1, 30);
+		MagazineSize = FMath::Clamp(MagazineSize, 1, 40);
 	}
 
 	// fill the first ammo clip
@@ -71,6 +87,75 @@ void AShooterWeapon::BeginPlay()
 
 	// attach the meshes to the owner
 	WeaponOwner->AttachWeaponMeshes(this);
+}
+
+void AShooterWeapon::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (IsHidden() || !FirstPersonGunMesh || !FirstPersonGunMesh->GetStaticMesh())
+	{
+		return;
+	}
+
+	// 1. Decay procedural recoil spring back to zero
+	CurrentRecoilOffset = FMath::VInterpTo(CurrentRecoilOffset, FVector::ZeroVector, DeltaTime, 18.0f);
+	CurrentRecoilRot = FMath::RInterpTo(CurrentRecoilRot, FRotator::ZeroRotator, DeltaTime, 16.0f);
+
+	// 2. Compute procedural reload animation offset (smooth mag-swap dip, tilt & bolt rack)
+	FVector ReloadOffset = FVector::ZeroVector;
+	FRotator ReloadRot = FRotator::ZeroRotator;
+	if (bIsReloading && ReloadDuration > 0.05f)
+	{
+		ReloadAnimElapsed += DeltaTime;
+		const float Alpha = FMath::Clamp(ReloadAnimElapsed / ReloadDuration, 0.0f, 1.0f);
+
+		// Smooth 3-stage reload motion curve:
+		// Stage A (0.0 -> 0.25): Tilt weapon 32 deg & dip down to eject mag
+		// Stage B (0.25 -> 0.72): Hold tilted down with two tactile mag-out / mag-in pulses
+		// Stage C (0.72 -> 1.0): Rack bolt backward slightly and snap back to ready position
+		float DipFactor = 0.0f;
+		float BoltRackBack = 0.0f;
+		if (Alpha < 0.25f)
+		{
+			DipFactor = FMath::InterpEaseInOut(0.0f, 1.0f, Alpha / 0.25f, 2.0f);
+		}
+		else if (Alpha < 0.72f)
+		{
+			const float MidPhase = (Alpha - 0.25f) / 0.47f;
+			// Add tactile mag-eject and mag-insert vertical jolt
+			const float Jolt = FMath::Sin(MidPhase * PI * 2.0f) * 0.18f;
+			DipFactor = 1.0f + Jolt;
+		}
+		else
+		{
+			const float EndPhase = (Alpha - 0.72f) / 0.28f;
+			DipFactor = FMath::InterpEaseInOut(1.0f, 0.0f, EndPhase, 2.0f);
+			BoltRackBack = FMath::Sin(EndPhase * PI) * 4.2f;
+		}
+
+		ReloadOffset = FVector(-BoltRackBack, -4.5f * DipFactor, -11.5f * DipFactor);
+		ReloadRot = FRotator(26.0f * DipFactor, -14.0f * DipFactor, -34.0f * DipFactor);
+	}
+	else
+	{
+		ReloadAnimElapsed = 0.0f;
+	}
+
+	// 3. Quick equip / draw rise animation when switching weapons on the wheel
+	FVector EquipOffset = FVector::ZeroVector;
+	FRotator EquipRot = FRotator::ZeroRotator;
+	if (EquipAnimElapsed < 0.22f)
+	{
+		EquipAnimElapsed += DeltaTime;
+		const float EquipAlpha = 1.0f - FMath::Clamp(EquipAnimElapsed / 0.22f, 0.0f, 1.0f);
+		const float Smooth = EquipAlpha * EquipAlpha;
+		EquipOffset = FVector(0.0f, -3.0f * Smooth, -9.0f * Smooth);
+		EquipRot = FRotator(-18.0f * Smooth, 0.0f, -15.0f * Smooth);
+	}
+
+	FirstPersonGunMesh->SetRelativeLocation(BaseGunRelativeLocation + CurrentRecoilOffset + ReloadOffset + EquipOffset);
+	FirstPersonGunMesh->SetRelativeRotation(BaseGunRelativeRotation + CurrentRecoilRot + ReloadRot + EquipRot);
 }
 
 void AShooterWeapon::EndPlay(EEndPlayReason::Type EndPlayReason)
@@ -92,9 +177,31 @@ void AShooterWeapon::ActivateWeapon()
 {
 	// unhide this weapon
 	SetActorHiddenInGame(false);
+	EquipAnimElapsed = 0.0f;
+
+	if (FirstPersonGunMesh && FirstPersonGunMesh->GetStaticMesh())
+	{
+		FirstPersonGunMesh->SetVisibility(true, true);
+		if (FirstPersonMesh)
+		{
+			FirstPersonMesh->SetVisibility(false, false);
+		}
+	}
+
+	if (ThirdPersonGunMesh && ThirdPersonGunMesh->GetStaticMesh())
+	{
+		ThirdPersonGunMesh->SetVisibility(true, true);
+		if (ThirdPersonMesh)
+		{
+			ThirdPersonMesh->SetVisibility(false, false);
+		}
+	}
 
 	// notify the owner
-	WeaponOwner->OnWeaponActivated(this);
+	if (WeaponOwner)
+	{
+		WeaponOwner->OnWeaponActivated(this);
+	}
 }
 
 void AShooterWeapon::DeactivateWeapon()
@@ -169,6 +276,7 @@ void AShooterWeapon::StartReload()
 
 	// raise the reloading flag, this blocks firing until the reload completes
 	bIsReloading = true;
+	ReloadAnimElapsed = 0.0f;
 
 	// note: firing is locked out by the bIsReloading checks in Fire() rather than
 	// StopFiring(), so a held full auto trigger resumes automatically in FinishReload()
@@ -381,6 +489,10 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	// add recoil
 	WeaponOwner->AddWeaponRecoil(FiringRecoil);
 
+	// apply procedural 3D weapon recoil impulse on the gun mesh
+	CurrentRecoilOffset += FVector(0.0f, -3.2f, 0.9f);
+	CurrentRecoilRot += FRotator(8.5f, FMath::FRandRange(-1.8f, 1.8f), -5.0f);
+
 	// consume bullets
 	--CurrentBullets;
 
@@ -404,7 +516,11 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 FTransform AShooterWeapon::CalculateProjectileSpawnTransform(const FVector& TargetLocation) const
 {
 	// find the muzzle location
-	const FVector MuzzleLoc = FirstPersonMesh->GetSocketLocation(MuzzleSocketName);
+	FVector MuzzleLoc = FirstPersonMesh->GetSocketLocation(MuzzleSocketName);
+	if (FirstPersonGunMesh && FirstPersonGunMesh->GetStaticMesh())
+	{
+		MuzzleLoc = FirstPersonGunMesh->GetComponentLocation() + FirstPersonGunMesh->GetRightVector() * 18.0f + FirstPersonGunMesh->GetUpVector() * 4.0f;
+	}
 
 	// calculate the spawn location ahead of the muzzle
 	const FVector SpawnLoc = MuzzleLoc + ((TargetLocation - MuzzleLoc).GetSafeNormal() * MuzzleOffset);
@@ -437,6 +553,11 @@ void AShooterWeapon::SetBulletCount(int32 NewCount)
 
 FString AShooterWeapon::GetRequiredAmmoDisplayName() const
 {
+	if (!ExplicitAmmoType.IsEmpty())
+	{
+		return ExplicitAmmoType;
+	}
+
 	const FString ClassStr = GetClass()->GetName();
 	if (ClassStr.Contains(TEXT("Pistol"), ESearchCase::IgnoreCase))
 	{
@@ -549,4 +670,82 @@ int32 AShooterWeapon::ConsumeInventoryAmmo(int32 RoundsNeeded)
 		Inv->OnInventoryUpdated.Broadcast();
 	}
 	return TotalConsumed;
+}
+
+void AShooterWeapon::ConfigureCustomGunPackArchetype(
+	const FString& InDisplayName,
+	const FString& InSubtitle,
+	const FString& InStaticMeshPath,
+	const FString& InAmmoType,
+	int32 InMagSize,
+	bool bInFullAuto,
+	float InRefireRate,
+	float InReloadDuration,
+	float InRecoil,
+	float InAimVariance,
+	const FVector& InMeshOffset,
+	const FRotator& InMeshRotation,
+	float InUniformScale,
+	TSubclassOf<AShooterProjectile> InProjectileClass,
+	TSubclassOf<UAnimInstance> InFPAnimClass,
+	TSubclassOf<UAnimInstance> InTPAnimClass,
+	UAnimMontage* InFireMontage,
+	UAnimMontage* InReloadMontage,
+	USoundBase* InFireSound,
+	USoundBase* InReloadSound,
+	USoundBase* InDryFireSound)
+{
+	WeaponDisplayName = InDisplayName;
+	WeaponSubtitle = InSubtitle;
+	ExplicitAmmoType = InAmmoType;
+	MagazineSize = InMagSize;
+	CurrentBullets = InMagSize;
+	bFullAuto = bInFullAuto;
+	RefireRate = InRefireRate;
+	ReloadDuration = InReloadDuration;
+	FiringRecoil = InRecoil;
+	AimVariance = InAimVariance;
+	MuzzleSocketName = FName("Muzzle");
+	MuzzleOffset = 15.0f;
+
+	if (InProjectileClass) { ProjectileClass = InProjectileClass; }
+	if (InFPAnimClass) { FirstPersonAnimInstanceClass = InFPAnimClass; }
+	if (InTPAnimClass) { ThirdPersonAnimInstanceClass = InTPAnimClass; }
+	if (InFireMontage) { FiringMontage = InFireMontage; }
+	if (InReloadMontage) { ReloadMontage = InReloadMontage; }
+	if (InFireSound) { FireSound = InFireSound; }
+	if (InReloadSound) { ReloadSound = InReloadSound; }
+	if (InDryFireSound) { DryFireSound = InDryFireSound; }
+
+	BaseGunRelativeLocation = InMeshOffset;
+	BaseGunRelativeRotation = InMeshRotation;
+	BaseGunRelativeScale = FVector(InUniformScale, InUniformScale, InUniformScale);
+
+	if (UStaticMesh* LoadedGunMesh = LoadObject<UStaticMesh>(nullptr, *InStaticMeshPath))
+	{
+		if (FirstPersonGunMesh)
+		{
+			FirstPersonGunMesh->SetStaticMesh(LoadedGunMesh);
+			FirstPersonGunMesh->SetRelativeLocation(BaseGunRelativeLocation);
+			FirstPersonGunMesh->SetRelativeRotation(BaseGunRelativeRotation);
+			FirstPersonGunMesh->SetRelativeScale3D(BaseGunRelativeScale);
+			FirstPersonGunMesh->SetVisibility(true, true);
+		}
+		if (ThirdPersonGunMesh)
+		{
+			ThirdPersonGunMesh->SetStaticMesh(LoadedGunMesh);
+			ThirdPersonGunMesh->SetRelativeLocation(BaseGunRelativeLocation);
+			ThirdPersonGunMesh->SetRelativeRotation(BaseGunRelativeRotation);
+			ThirdPersonGunMesh->SetRelativeScale3D(BaseGunRelativeScale);
+			ThirdPersonGunMesh->SetVisibility(true, true);
+		}
+		if (FirstPersonMesh)
+		{
+			FirstPersonMesh->SetVisibility(false, false);
+		}
+		if (ThirdPersonMesh)
+		{
+			ThirdPersonMesh->SetVisibility(false, false);
+		}
+	}
 }

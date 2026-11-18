@@ -11,6 +11,8 @@
 class IShooterWeaponHolder;
 class AShooterProjectile;
 class USkeletalMeshComponent;
+class UStaticMeshComponent;
+class UStaticMesh;
 class UAnimMontage;
 class UAnimInstance;
 class USoundBase;
@@ -21,7 +23,7 @@ class USoundBase;
  *  Handles ammo and firing logic
  *  Interacts with the weapon owner through the ShooterWeaponHolder interface
  */
-UCLASS(abstract)
+UCLASS(Blueprintable)
 class GAMEJAM_SHIFT_2026_API AShooterWeapon : public AActor
 {
 	GENERATED_BODY()
@@ -34,7 +36,48 @@ class GAMEJAM_SHIFT_2026_API AShooterWeapon : public AActor
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* ThirdPersonMesh;
 
+	/** First person custom static mesh for 3D gun pack models (with procedural recoil & reload) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> FirstPersonGunMesh;
+
+	/** Third person custom static mesh for 3D gun pack models */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> ThirdPersonGunMesh;
+
 protected:
+
+	/** Display name of this weapon (e.g. "M4A1 CARBINE") */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Weapon")
+	FString WeaponDisplayName = TEXT("Pistol");
+
+	/** Category/caliber subtitle shown in the weapon wheel (e.g. "5.56mm Full-Auto Carbine") */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Weapon")
+	FString WeaponSubtitle = TEXT("9mm Sidearm");
+
+	/** Explicit ammo display name override (e.g. "9mm Pistol Ammo", "5.56mm Rifle Ammo") */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Ammo")
+	FString ExplicitAmmoType;
+
+	/** Base relative offset of FirstPersonGunMesh when held at rest */
+	FVector BaseGunRelativeLocation = FVector::ZeroVector;
+
+	/** Base relative rotation of FirstPersonGunMesh when held at rest */
+	FRotator BaseGunRelativeRotation = FRotator::ZeroRotator;
+
+	/** Base uniform scale of FirstPersonGunMesh */
+	FVector BaseGunRelativeScale = FVector(0.055f, 0.055f, 0.055f);
+
+	/** Current procedural recoil translation offset in local space */
+	FVector CurrentRecoilOffset = FVector::ZeroVector;
+
+	/** Current procedural recoil rotation offset in local space */
+	FRotator CurrentRecoilRot = FRotator::ZeroRotator;
+
+	/**Elapsed seconds into the active reload animation */
+	float ReloadAnimElapsed = 0.0f;
+
+	/**Elapsed seconds into the weapon equip/draw animation */
+	float EquipAnimElapsed = 0.0f;
 
 	/** Cast pointer to the weapon owner */
 	IShooterWeaponHolder* WeaponOwner;
@@ -146,6 +189,9 @@ protected:
 	/** Gameplay initialization */
 	virtual void BeginPlay() override;
 
+	/** Per-frame procedural recoil and reload animation update */
+	virtual void Tick(float DeltaTime) override;
+
 	/** Gameplay Cleanup */
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
 
@@ -235,4 +281,42 @@ public:
 
 	/** Consumes up to RoundsNeeded matching ammo from the owner's Tarkov Backpack */
 	int32 ConsumeInventoryAmmo(int32 RoundsNeeded);
+
+	/** Configures this weapon instance directly from one of the 7 imported Gun Pack models */
+	void ConfigureCustomGunPackArchetype(
+		const FString& InDisplayName,
+		const FString& InSubtitle,
+		const FString& InStaticMeshPath,
+		const FString& InAmmoType,
+		int32 InMagSize,
+		bool bInFullAuto,
+		float InRefireRate,
+		float InReloadDuration,
+		float InRecoil,
+		float InAimVariance,
+		const FVector& InMeshOffset,
+		const FRotator& InMeshRotation,
+		float InUniformScale,
+		TSubclassOf<AShooterProjectile> InProjectileClass,
+		TSubclassOf<UAnimInstance> InFPAnimClass,
+		TSubclassOf<UAnimInstance> InTPAnimClass,
+		UAnimMontage* InFireMontage,
+		UAnimMontage* InReloadMontage,
+		USoundBase* InFireSound,
+		USoundBase* InReloadSound,
+		USoundBase* InDryFireSound);
+
+	/** Returns the display name of this weapon */
+	UFUNCTION(BlueprintPure, Category="Weapon")
+	const FString& GetWeaponDisplayName() const { return WeaponDisplayName; }
+
+	/** Returns the subtitle/category of this weapon */
+	UFUNCTION(BlueprintPure, Category="Weapon")
+	const FString& GetWeaponSubtitle() const { return WeaponSubtitle; }
+
+	/** Returns the custom first person static gun mesh */
+	UStaticMeshComponent* GetFirstPersonGunMesh() const { return FirstPersonGunMesh; }
+
+	/** Returns the custom third person static gun mesh */
+	UStaticMeshComponent* GetThirdPersonGunMesh() const { return ThirdPersonGunMesh; }
 };

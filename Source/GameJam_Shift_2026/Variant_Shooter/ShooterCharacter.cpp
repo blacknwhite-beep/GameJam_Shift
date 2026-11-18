@@ -35,6 +35,8 @@
 #include "ShooterPlayerController.h"
 #include "ShooterBulletCounterUI.h"
 #include "UI/TarkovInventoryWidgets.h"
+#include "UI/ShooterWeaponWheelWidget.h"
+#include "Weapons/ShooterProjectile.h"
 
 namespace
 {
@@ -115,11 +117,8 @@ void AShooterCharacter::BeginPlay()
 	// update the HUD
 	OnDamaged.Broadcast(1.0f);
 
-	// spawn and equip initial weapon
-	if (InitialWeaponClass)
-	{
-		AddWeaponClass(InitialWeaponClass);
-	}
+	// Spawn all 7 Gun Pack weapons into the 7-slot radial weapon wheel (no purchasing restrictions)
+	SpawnAllGunPackWeapons();
 
 	// Register with DimensionShiftSubsystem
 	if (UGameInstance* GI = GetGameInstance())
@@ -237,11 +236,8 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		// Reload
 		EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Started, this, &AShooterCharacter::DoReload);
 
-		// Toggle Inventory
-		if (ToggleInventoryAction)
-		{
-			EnhancedInputComponent->BindAction(ToggleInventoryAction, ETriggerEvent::Started, this, &AShooterCharacter::DoToggleInventory);
-		}
+		// Toggle Inventory (only wire Enhanced Input IA_ToggleInventory if it is not intercepting Tab in Combat)
+		// We handle I (Inventory) and Tab (7-Weapon Radial Wheel in Combat / Inventory in Farm) directly via BindKey.
 
 		// Dimension Shift (Shift key)
 		if (DimensionShiftAction)
@@ -257,11 +253,14 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AShooterCharacter::DoStartFiring);
 	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AShooterCharacter::DoStopFiring);
 
-	// Farming tool selection keybindings (active only when CurrentDimension == EGameDimension::Farming)
+	// Farming tool (1..4) & Combat Weapon Wheel (1..7) direct keybindings
 	PlayerInputComponent->BindKey(EKeys::One, IE_Pressed, this, &AShooterCharacter::SelectTool1);
 	PlayerInputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AShooterCharacter::SelectTool2);
 	PlayerInputComponent->BindKey(EKeys::Three, IE_Pressed, this, &AShooterCharacter::SelectTool3);
 	PlayerInputComponent->BindKey(EKeys::Four, IE_Pressed, this, &AShooterCharacter::SelectTool4);
+	PlayerInputComponent->BindKey(EKeys::Five, IE_Pressed, this, &AShooterCharacter::SelectWeaponSlot5);
+	PlayerInputComponent->BindKey(EKeys::Six, IE_Pressed, this, &AShooterCharacter::SelectWeaponSlot6);
+	PlayerInputComponent->BindKey(EKeys::Seven, IE_Pressed, this, &AShooterCharacter::SelectWeaponSlot7);
 	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AShooterCharacter::CycleToolPrevious);
 	PlayerInputComponent->BindKey(EKeys::E, IE_Pressed, this, &AShooterCharacter::CycleToolNext);
 	PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AShooterCharacter::CycleToolPrevious);
@@ -271,9 +270,10 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	// Quick use medkit action (H key)
 	PlayerInputComponent->BindKey(EKeys::H, IE_Pressed, this, &AShooterCharacter::UseMedkit);
 
-	// Inventory toggle fallback in Farming dimension (since IMC_Weapons is removed while farming)
-	PlayerInputComponent->BindKey(EKeys::I, IE_Pressed, this, &AShooterCharacter::DoToggleInventoryFromFarming);
-	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AShooterCharacter::DoToggleInventoryFromFarming);
+	// Inventory toggle (I key in both dimensions; Holding TAB in Combat opens the 7-Weapon Radial Wheel!)
+	PlayerInputComponent->BindKey(EKeys::I, IE_Pressed, this, &AShooterCharacter::DoToggleInventory);
+	PlayerInputComponent->BindKey(EKeys::Tab, IE_Pressed, this, &AShooterCharacter::OnTabPressed);
+	PlayerInputComponent->BindKey(EKeys::Tab, IE_Released, this, &AShooterCharacter::OnTabReleased);
 
 	// Tactical flashlight toggle (F key — Combat / Zombie dimension only)
 	PlayerInputComponent->BindKey(EKeys::F, IE_Pressed, this, &AShooterCharacter::ToggleFlashlight);
@@ -389,7 +389,12 @@ void AShooterCharacter::DoStartFiring()
 		return;
 	}
 
-	// fire the current weapon
+	// fire the current weapon (ignore if the radial weapon wheel is currently open)
+	if (bIsWeaponWheelOpen)
+	{
+		return;
+	}
+
 	if (CurrentWeapon && !IsDead())
 	{
 		CurrentWeapon->StartFiring();
@@ -551,7 +556,11 @@ void AShooterCharacter::HandleDimensionShift()
 		GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan, TEXT(">>> [INPUT] Left Shift Pressed! Requesting Dimension Shift..."));
 	}
 
-	// Close inventory overlay if open before shifting
+	// Close weapon wheel or inventory overlay if open before shifting
+	if (bIsWeaponWheelOpen)
+	{
+		OnTabReleased();
+	}
 	if (TarkovInventory && TarkovInventory->IsInventoryOpen())
 	{
 		TarkovInventory->ToggleInventory();
@@ -651,6 +660,14 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 			{
 				CurrentWeapon->GetThirdPersonMesh()->SetVisibility(false, true);
 			}
+			if (CurrentWeapon->GetFirstPersonGunMesh())
+			{
+				CurrentWeapon->GetFirstPersonGunMesh()->SetVisibility(false, true);
+			}
+			if (CurrentWeapon->GetThirdPersonGunMesh())
+			{
+				CurrentWeapon->GetThirdPersonGunMesh()->SetVisibility(false, true);
+			}
 		}
 
 		// Clear character weapon anim instances so ABP_FP_Pistol does not tick on inactive weapon
@@ -731,14 +748,6 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 		// Unholster and reactivate weapon when returning to combat
 		if (CurrentWeapon)
 		{
-			if (CurrentWeapon->GetFirstPersonMesh())
-			{
-				CurrentWeapon->GetFirstPersonMesh()->SetVisibility(true, true);
-			}
-			if (CurrentWeapon->GetThirdPersonMesh())
-			{
-				CurrentWeapon->GetThirdPersonMesh()->SetVisibility(true, true);
-			}
 			CurrentWeapon->ActivateWeapon();
 
 			// Restore character mesh AnimInstances
@@ -986,6 +995,11 @@ void AShooterCharacter::SelectTool1()
 	{
 		FarmingComponent->SetActiveTool(EFarmTool::None);
 	}
+	else if (CurrentDimension == EGameDimension::Combat)
+	{
+		if (bIsWeaponWheelOpen && WeaponWheelWidget) { WeaponWheelWidget->SelectSlotByIndex(0); }
+		else { EquipWeaponByIndex(0); }
+	}
 }
 
 void AShooterCharacter::SelectTool2()
@@ -993,6 +1007,11 @@ void AShooterCharacter::SelectTool2()
 	if (CurrentDimension == EGameDimension::Farming && FarmingComponent)
 	{
 		FarmingComponent->SetActiveTool(EFarmTool::Hoe);
+	}
+	else if (CurrentDimension == EGameDimension::Combat)
+	{
+		if (bIsWeaponWheelOpen && WeaponWheelWidget) { WeaponWheelWidget->SelectSlotByIndex(1); }
+		else { EquipWeaponByIndex(1); }
 	}
 }
 
@@ -1002,6 +1021,11 @@ void AShooterCharacter::SelectTool3()
 	{
 		FarmingComponent->SetActiveTool(EFarmTool::WateringCan);
 	}
+	else if (CurrentDimension == EGameDimension::Combat)
+	{
+		if (bIsWeaponWheelOpen && WeaponWheelWidget) { WeaponWheelWidget->SelectSlotByIndex(2); }
+		else { EquipWeaponByIndex(2); }
+	}
 }
 
 void AShooterCharacter::SelectTool4()
@@ -1009,6 +1033,296 @@ void AShooterCharacter::SelectTool4()
 	if (CurrentDimension == EGameDimension::Farming && FarmingComponent)
 	{
 		FarmingComponent->SetActiveTool(EFarmTool::Harvester);
+	}
+	else if (CurrentDimension == EGameDimension::Combat)
+	{
+		if (bIsWeaponWheelOpen && WeaponWheelWidget) { WeaponWheelWidget->SelectSlotByIndex(3); }
+		else { EquipWeaponByIndex(3); }
+	}
+}
+
+void AShooterCharacter::SelectWeaponSlot5()
+{
+	if (CurrentDimension == EGameDimension::Combat)
+	{
+		if (bIsWeaponWheelOpen && WeaponWheelWidget) { WeaponWheelWidget->SelectSlotByIndex(4); }
+		else { EquipWeaponByIndex(4); }
+	}
+}
+
+void AShooterCharacter::SelectWeaponSlot6()
+{
+	if (CurrentDimension == EGameDimension::Combat)
+	{
+		if (bIsWeaponWheelOpen && WeaponWheelWidget) { WeaponWheelWidget->SelectSlotByIndex(5); }
+		else { EquipWeaponByIndex(5); }
+	}
+}
+
+void AShooterCharacter::SelectWeaponSlot7()
+{
+	if (CurrentDimension == EGameDimension::Combat)
+	{
+		if (bIsWeaponWheelOpen && WeaponWheelWidget) { WeaponWheelWidget->SelectSlotByIndex(6); }
+		else { EquipWeaponByIndex(6); }
+	}
+}
+
+void AShooterCharacter::OnTabPressed()
+{
+	if (IsDead())
+	{
+		return;
+	}
+
+	// In Farming dimension, Tab toggles the Tarkov Backpack inventory as before
+	if (CurrentDimension == EGameDimension::Farming)
+	{
+		DoToggleInventory();
+		return;
+	}
+
+	// Close Tarkov Inventory if open before bringing up the Radial Weapon Wheel
+	if (TarkovInventory && TarkovInventory->IsInventoryOpen())
+	{
+		TarkovInventory->ToggleInventory();
+	}
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC || !PC->IsLocalController())
+	{
+		return;
+	}
+
+	if (!WeaponWheelWidget)
+	{
+		WeaponWheelWidget = CreateWidget<UShooterWeaponWheelWidget>(PC, UShooterWeaponWheelWidget::StaticClass());
+		if (WeaponWheelWidget)
+		{
+			WeaponWheelWidget->AddToViewport(60);
+		}
+	}
+
+	if (WeaponWheelWidget)
+	{
+		bIsWeaponWheelOpen = true;
+		DoStopFiring();
+		WeaponWheelWidget->OpenWheel(this);
+	}
+}
+
+void AShooterCharacter::OnTabReleased()
+{
+	if (!bIsWeaponWheelOpen)
+	{
+		return;
+	}
+
+	bIsWeaponWheelOpen = false;
+	if (WeaponWheelWidget)
+	{
+		WeaponWheelWidget->CloseWheelAndCommit();
+	}
+}
+
+void AShooterCharacter::EquipWeaponByIndex(int32 WeaponIndex)
+{
+	if (IsDead() || !OwnedWeapons.IsValidIndex(WeaponIndex))
+	{
+		return;
+	}
+
+	AShooterWeapon* TargetWeapon = OwnedWeapons[WeaponIndex];
+	if (!TargetWeapon)
+	{
+		return;
+	}
+
+	if (CurrentWeapon && CurrentWeapon != TargetWeapon)
+	{
+		CurrentWeapon->DeactivateWeapon();
+	}
+
+	CurrentWeapon = TargetWeapon;
+	CurrentWeapon->ActivateWeapon();
+
+	if (TarkovInventory)
+	{
+		TarkovInventory->bHasEquippedWeapon = true;
+		TarkovInventory->EquippedWeaponItem.ItemName = CurrentWeapon->GetWeaponDisplayName();
+		TarkovInventory->EquippedWeaponItem.WeaponClass = CurrentWeapon->GetClass();
+		TarkovInventory->EquippedWeaponItem.AmmoCount = CurrentWeapon->GetBulletCount();
+		TarkovInventory->OnInventoryUpdated.Broadcast();
+	}
+}
+
+void AShooterCharacter::SpawnAllGunPackWeapons()
+{
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	// Load shared projectile, anim instances, montages, and sound waves from Variant_Shooter
+	TSubclassOf<AShooterProjectile> BulletProjClass = LoadClass<AShooterProjectile>(
+		nullptr, TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Projectiles/BP_ShooterProjectile_Bullet.BP_ShooterProjectile_Bullet_C"));
+	TSubclassOf<UAnimInstance> FPPistolAnim = LoadClass<UAnimInstance>(
+		nullptr, TEXT("/Game/Variant_Shooter/Anims/ABP_FP_Pistol.ABP_FP_Pistol_C"));
+	TSubclassOf<UAnimInstance> TPPistolAnim = LoadClass<UAnimInstance>(
+		nullptr, TEXT("/Game/Variant_Shooter/Anims/ABP_TP_Pistol.ABP_TP_Pistol_C"));
+	TSubclassOf<UAnimInstance> FPRifleAnim = LoadClass<UAnimInstance>(
+		nullptr, TEXT("/Game/Variant_Shooter/Anims/ABP_FP_Weapon.ABP_FP_Weapon_C"));
+	TSubclassOf<UAnimInstance> TPRifleAnim = LoadClass<UAnimInstance>(
+		nullptr, TEXT("/Game/Variant_Shooter/Anims/ABP_TP_Rifle.ABP_TP_Rifle_C"));
+
+	UAnimMontage* PistolFireMontage = LoadObject<UAnimMontage>(
+		nullptr, TEXT("/Game/Characters/Mannequins/Anims/Pistol/MM_Pistol_Fire_Montage.MM_Pistol_Fire_Montage"));
+	UAnimMontage* PistolReloadMontage = LoadObject<UAnimMontage>(
+		nullptr, TEXT("/Game/Characters/Mannequins/Anims/Pistol/MM_Pistol_Reload_Montage.MM_Pistol_Reload_Montage"));
+	UAnimMontage* RifleFireMontage = LoadObject<UAnimMontage>(
+		nullptr, TEXT("/Game/Variant_Shooter/Anims/FP_Rifle_Shoot_Montage.FP_Rifle_Shoot_Montage"));
+
+	USoundBase* FireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_Fire.S_Pistol_Fire"));
+	USoundBase* ReloadSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_Reload.S_Pistol_Reload"));
+	USoundBase* DryFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_DryFire.S_Pistol_DryFire"));
+
+	TSubclassOf<AShooterWeapon> BaseWepClass = InitialWeaponClass
+		? InitialWeaponClass
+		: TSubclassOf<AShooterWeapon>(AShooterWeapon::StaticClass());
+
+	struct FGunPackSpec
+	{
+		const TCHAR* DisplayName;
+		const TCHAR* Subtitle;
+		const TCHAR* MeshPath;
+		const TCHAR* AmmoType;
+		int32 MagSize;
+		bool bFullAuto;
+		float RefireRate;
+		float ReloadDuration;
+		float Recoil;
+		float AimVariance;
+		FVector Offset;
+		FRotator Rotation;
+		float Scale;
+		bool bUsePistolRig;
+	};
+
+	const FGunPackSpec Specs[7] = {
+		// 1. M1911 Classic
+		{
+			TEXT("M1911 Classic"),
+			TEXT("Semi-Auto Sidearm"),
+			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_M1911.SM_Gun_M1911"),
+			TEXT("9mm Pistol Ammo"),
+			12, false, 0.20f, 1.35f, -0.05f, 10.0f,
+			FVector(0.0f, 4.0f, 2.0f), FRotator(0.0f, 0.0f, 0.0f), 0.052f, true
+		},
+		// 2. M1911 Tactical
+		{
+			TEXT("M1911 Tactical"),
+			TEXT("Custom Match Pistol"),
+			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_M1911Tactical.SM_Gun_M1911Tactical"),
+			TEXT("9mm Pistol Ammo"),
+			15, false, 0.15f, 1.25f, -0.04f, 8.0f,
+			FVector(0.0f, 4.0f, 2.0f), FRotator(0.0f, 0.0f, 0.0f), 0.052f, true
+		},
+		// 3. MP5 Submachine Gun
+		{
+			TEXT("MP5 SMG"),
+			TEXT("9mm Tactical SMG"),
+			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_MP5.SM_Gun_MP5"),
+			TEXT("9mm Pistol Ammo"),
+			30, true, 0.085f, 1.55f, -0.06f, 16.0f,
+			FVector(0.0f, 8.0f, 3.0f), FRotator(0.0f, 0.0f, 0.0f), 0.058f, false
+		},
+		// 4. MP7 PDW
+		{
+			TEXT("MP7 Personal Defense"),
+			TEXT("High-ROF Compact SMG"),
+			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_MP7.SM_Gun_MP7"),
+			TEXT("9mm Pistol Ammo"),
+			40, true, 0.068f, 1.45f, -0.055f, 18.0f,
+			FVector(0.0f, 9.0f, 4.0f), FRotator(0.0f, 0.0f, 0.0f), 0.065f, false
+		},
+		// 5. M4A1 Carbine
+		{
+			TEXT("M4A1 Carbine"),
+			TEXT("Full-Auto Assault Carbine"),
+			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_M4A1.SM_Gun_M4A1"),
+			TEXT("5.56mm Rifle Ammo"),
+			30, true, 0.095f, 1.65f, -0.085f, 14.0f,
+			FVector(0.0f, 11.0f, 2.5f), FRotator(0.0f, 0.0f, 0.0f), 0.056f, false
+		},
+		// 6. M16A4 Assault Rifle
+		{
+			TEXT("M16A4 Rifle"),
+			TEXT("Precision Service Rifle"),
+			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_M16.SM_Gun_M16"),
+			TEXT("5.56mm Rifle Ammo"),
+			30, true, 0.11f, 1.70f, -0.075f, 9.0f,
+			FVector(0.0f, 14.0f, 3.0f), FRotator(0.0f, 0.0f, 0.0f), 0.048f, false
+		},
+		// 7. FN SCAR-H
+		{
+			TEXT("SCAR-H Heavy"),
+			TEXT("Heavy Battle Rifle"),
+			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_SCAR.SM_Gun_SCAR"),
+			TEXT("5.56mm Rifle Ammo"),
+			20, true, 0.135f, 1.80f, -0.11f, 7.0f,
+			FVector(0.0f, 14.0f, 3.0f), FRotator(0.0f, 0.0f, 0.0f), 0.048f, false
+		}
+	};
+
+	OwnedWeapons.Reset();
+
+	for (int32 i = 0; i < 7; ++i)
+	{
+		const FGunPackSpec& S = Specs[i];
+
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = this;
+		SpawnParams.Instigator = this;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		SpawnParams.TransformScaleMethod = ESpawnActorScaleMethod::MultiplyWithRoot;
+
+		AShooterWeapon* NewWep = GetWorld()->SpawnActor<AShooterWeapon>(BaseWepClass, GetActorTransform(), SpawnParams);
+		if (!NewWep)
+		{
+			continue;
+		}
+
+		NewWep->ConfigureCustomGunPackArchetype(
+			S.DisplayName,
+			S.Subtitle,
+			S.MeshPath,
+			S.AmmoType,
+			S.MagSize,
+			S.bFullAuto,
+			S.RefireRate,
+			S.ReloadDuration,
+			S.Recoil,
+			S.AimVariance,
+			S.Offset,
+			S.Rotation,
+			S.Scale,
+			BulletProjClass,
+			S.bUsePistolRig ? FPPistolAnim : FPRifleAnim,
+			S.bUsePistolRig ? TPPistolAnim : TPRifleAnim,
+			S.bUsePistolRig ? PistolFireMontage : RifleFireMontage,
+			PistolReloadMontage,
+			FireSnd,
+			ReloadSnd,
+			DryFireSnd
+		);
+
+		NewWep->DeactivateWeapon();
+		OwnedWeapons.Add(NewWep);
+	}
+
+	if (OwnedWeapons.Num() > 0)
+	{
+		EquipWeaponByIndex(0);
 	}
 }
 
