@@ -156,8 +156,9 @@ void UDimensionShiftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	Super::Initialize(Collection);
 	CurrentDimension = EGameDimension::Combat;
 	LastShiftTime = -100.0f;
+	CurrentGold = StartingGold;
 	PrototypeFarmPlatform.Reset();
-	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem initialized. Starting in Combat dimension."));
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem initialized. Starting in Combat dimension with %d Gold."), CurrentGold);
 }
 
 void UDimensionShiftSubsystem::Deinitialize()
@@ -450,4 +451,29 @@ void UDimensionShiftSubsystem::SetCurrentDimension(EGameDimension NewDimension)
 {
 	CurrentDimension = NewDimension;
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Dimension state manually set to %s"), *UEnum::GetValueAsString(CurrentDimension));
+}
+
+void UDimensionShiftSubsystem::AddGold(int32 Amount)
+{
+	if (Amount == 0)
+	{
+		return;
+	}
+
+	CurrentGold = FMath::Max(0, CurrentGold + Amount);
+	OnGoldChanged.Broadcast(CurrentGold, Amount);
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Economy: %+d Gold -> Balance: %d"), Amount, CurrentGold);
+}
+
+bool UDimensionShiftSubsystem::SpendGold(int32 Amount)
+{
+	if (Amount <= 0 || CurrentGold < Amount)
+	{
+		return false;
+	}
+
+	CurrentGold -= Amount;
+	OnGoldChanged.Broadcast(CurrentGold, -Amount);
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Economy: Spent %d Gold -> Balance: %d"), Amount, CurrentGold);
+	return true;
 }

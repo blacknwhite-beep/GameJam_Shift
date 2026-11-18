@@ -50,9 +50,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|Audio")
 	TObjectPtr<USoundBase> AttackGroanSound;
 
+	/** Gold awarded to the player when this zombie is killed */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|Economy", meta = (ClampMin = "0"))
+	int32 KillGoldReward = 100;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
+	virtual void Die() override;
 
 	/** Executes a melee hit on the target player */
 	void PerformMeleeAttack(AActor* TargetActor);

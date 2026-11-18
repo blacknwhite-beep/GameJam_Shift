@@ -2,6 +2,7 @@
 
 #include "Variant_Shooter/AI/ZombieEnemy.h"
 #include "AIController.h"
+#include "DimensionShiftSubsystem.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -146,4 +147,25 @@ void AZombieEnemy::PerformMeleeAttack(AActor* TargetActor)
 	}
 
 	UGameplayStatics::ApplyDamage(TargetActor, MeleeDamage, GetController(), this, nullptr);
+}
+
+void AZombieEnemy::Die()
+{
+	if (bIsDead)
+	{
+		return;
+	}
+
+	Super::Die();
+
+	if (KillGoldReward > 0)
+	{
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Subsystem = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				Subsystem->AddGold(KillGoldReward);
+			}
+		}
+	}
 }

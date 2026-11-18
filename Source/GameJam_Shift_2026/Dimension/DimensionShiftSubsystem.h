@@ -10,6 +10,8 @@
 class ACharacter;
 class AStaticMeshActor;
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnGoldChanged, int32, NewGold, int32, Delta);
+
 /**
  * Subsystem responsible for managing dimension shifting between the Combat and Farming worlds.
  * Persists across level transitions via UGameInstance.
@@ -95,6 +97,34 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Dimension Shift|Farm Level")
 	void ApplyDimensionLighting(UWorld* World, EGameDimension Dimension) const;
+
+	// -------------------------------------------------------------------------
+	// Gold / Money Economy
+	// -------------------------------------------------------------------------
+
+	/** Initial gold balance granted when a new game session starts. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Economy", meta = (ClampMin = "0"))
+	int32 StartingGold = 2000;
+
+	/** Current gold balance carried across Combat and Farming dimensions. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Economy")
+	int32 CurrentGold = 2000;
+
+	/** Broadcast whenever gold changes (NewGold, Delta). */
+	UPROPERTY(BlueprintAssignable, Category = "Economy")
+	FOnGoldChanged OnGoldChanged;
+
+	/** Returns the player's current gold balance. */
+	UFUNCTION(BlueprintPure, Category = "Economy")
+	int32 GetGold() const { return CurrentGold; }
+
+	/** Adds (or subtracts if negative) gold and broadcasts OnGoldChanged. */
+	UFUNCTION(BlueprintCallable, Category = "Economy")
+	void AddGold(int32 Amount);
+
+	/** Attempts to spend Amount gold; returns true and broadcasts if affordable. */
+	UFUNCTION(BlueprintCallable, Category = "Economy")
+	bool SpendGold(int32 Amount);
 
 private:
 	/** Called once the streamed farm level becomes visible. */

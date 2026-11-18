@@ -145,7 +145,7 @@ public:
 protected:
 
 	/** Called when HP is depleted and the character should die */
-	void Die();
+	virtual void Die();
 
 	/** Called after death to destroy the actor */
 	void DeferredDestruction();
