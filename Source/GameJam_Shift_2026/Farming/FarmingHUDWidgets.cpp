@@ -375,7 +375,7 @@ void UFarmingHUDWidget::DescribeSeed(FName SeedID, FString& OutDisplayName, FStr
 	if (SeedStr.Contains(TEXT("Shotgun"), ESearchCase::IgnoreCase))
 	{
 		OutDisplayName = TEXT("SHOTGUN CORN (12G Shells)");
-		OutYieldDesc = TEXT("Harvest Yield: +8x 12G Shotgun Shells (1x1 Grid)");
+		OutYieldDesc = TEXT("Harvest Yield: +16x 12G Shotgun Shells (1x1 Grid)");
 	}
 	else if (SeedStr.Contains(TEXT("Rifle"), ESearchCase::IgnoreCase))
 	{

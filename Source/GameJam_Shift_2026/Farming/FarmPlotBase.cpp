@@ -262,35 +262,114 @@ bool AFarmPlotBase::PlantSeed(FName SeedID, float InStageDuration)
 	CurrentStage = ECropStage::Planted;
 	bIsWatered = false;
 
-	if (!bPreserveConfiguredYield)
+	// Ensure Sprout mesh is always loaded so all plots show proper 3D sprouts during growth
+	if (Mesh_Sprout && Mesh_Sprout->GetStaticMesh() == nullptr)
 	{
-		// Automatic default yield mapping based on seed identifier
-		const FString SeedStr = SeedID.ToString();
-		if (SeedStr.Contains(TEXT("Shotgun")) || SeedStr.Contains(TEXT("Buckshot")))
+		if (UStaticMesh* SproutAsset = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Meshes/SM_Crop_Sprout.SM_Crop_Sprout")))
 		{
-			HarvestYield.ItemID = FName("Ammo_Shotgun_12G");
-			HarvestYield.Quantity = 8;
+			Mesh_Sprout->SetStaticMesh(SproutAsset);
 		}
-		else if (SeedStr.Contains(TEXT("Rifle")) || SeedStr.Contains(TEXT("556")))
+	}
+
+	// Always configure HarvestYield, HarvestFloatingText, and Mesh_Mature from the planted SeedID
+	// so every seed plants its specific ammo/resource type regardless of which plot it is planted on
+	const FString SeedStr = SeedID.ToString();
+	if (SeedStr.Contains(TEXT("Shotgun"), ESearchCase::IgnoreCase) || SeedStr.Contains(TEXT("Buckshot"), ESearchCase::IgnoreCase))
+	{
+		HarvestYield.ItemID = FName("Item_Ammo_Shotgun");
+		HarvestYield.Quantity = 16;
+		HarvestFloatingText = TEXT("+16 Shotgun Shells (12G)");
+
+		if (Mesh_Mature)
 		{
-			HarvestYield.ItemID = FName("Ammo_Rifle_556");
-			HarvestYield.Quantity = 30;
+			if (UStaticMesh* MatureAsset = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Meshes/SM_Crop_ShotgunCorn.SM_Crop_ShotgunCorn")))
+			{
+				Mesh_Mature->SetStaticMesh(MatureAsset);
+				const int32 NumMats = Mesh_Mature->GetNumMaterials();
+				for (int32 SlotIdx = 0; SlotIdx < NumMats; ++SlotIdx)
+				{
+					Mesh_Mature->SetMaterial(SlotIdx, nullptr);
+				}
+			}
 		}
-		else if (SeedStr.Contains(TEXT("Pistol")) || SeedStr.Contains(TEXT("9mm")))
+	}
+	else if (SeedStr.Contains(TEXT("Rifle"), ESearchCase::IgnoreCase) || SeedStr.Contains(TEXT("556"), ESearchCase::IgnoreCase))
+	{
+		HarvestYield.ItemID = FName("Item_Ammo_Rifle");
+		HarvestYield.Quantity = 30;
+		HarvestFloatingText = TEXT("+30 Rifle Ammo (5.56mm)");
+
+		if (Mesh_Mature)
 		{
-			HarvestYield.ItemID = FName("Ammo_Pistol_9mm");
-			HarvestYield.Quantity = 25;
+			if (UStaticMesh* MatureAsset = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Meshes/SM_Crop_RifleWheat.SM_Crop_RifleWheat")))
+			{
+				Mesh_Mature->SetStaticMesh(MatureAsset);
+				const int32 NumMats = Mesh_Mature->GetNumMaterials();
+				for (int32 SlotIdx = 0; SlotIdx < NumMats; ++SlotIdx)
+				{
+					Mesh_Mature->SetMaterial(SlotIdx, nullptr);
+				}
+			}
 		}
-		else if (SeedStr.Contains(TEXT("Health")) || SeedStr.Contains(TEXT("Medkit")))
+	}
+	else if (SeedStr.Contains(TEXT("Pistol"), ESearchCase::IgnoreCase) || SeedStr.Contains(TEXT("9mm"), ESearchCase::IgnoreCase))
+	{
+		HarvestYield.ItemID = FName("Item_Ammo_Pistol");
+		HarvestYield.Quantity = 25;
+		HarvestFloatingText = TEXT("+25 Pistol Ammo (9mm)");
+
+		if (Mesh_Mature)
 		{
-			HarvestYield.ItemID = FName("Item_Medkit");
-			HarvestYield.Quantity = 1;
+			if (UStaticMesh* MatureAsset = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Meshes/SM_Crop_RifleWheat.SM_Crop_RifleWheat")))
+			{
+				Mesh_Mature->SetStaticMesh(MatureAsset);
+				const int32 NumMats = Mesh_Mature->GetNumMaterials();
+				for (int32 SlotIdx = 0; SlotIdx < NumMats; ++SlotIdx)
+				{
+					Mesh_Mature->SetMaterial(SlotIdx, nullptr);
+				}
+				// Apply crimson berry & copper brass materials to distinguish 9mm Pistol Berry Vines from golden Rifle Wheat
+				if (UMaterialInterface* BerryRed = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/MI_Crop_ShellRed.MI_Crop_ShellRed")))
+				{
+					if (NumMats > 1)
+					{
+						Mesh_Mature->SetMaterial(1, BerryRed);
+					}
+				}
+				if (UMaterialInterface* CopperMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/MI_Crop_Copper.MI_Crop_Copper")))
+				{
+					if (NumMats > 2)
+					{
+						Mesh_Mature->SetMaterial(2, CopperMat);
+					}
+				}
+			}
 		}
-		else
+	}
+	else if (SeedStr.Contains(TEXT("Health"), ESearchCase::IgnoreCase) || SeedStr.Contains(TEXT("Medkit"), ESearchCase::IgnoreCase) || SeedStr.Contains(TEXT("Herb"), ESearchCase::IgnoreCase))
+	{
+		HarvestYield.ItemID = FName("Item_Medkit");
+		HarvestYield.Quantity = 1;
+		HarvestFloatingText = TEXT("+1 Combat Medkit");
+
+		if (Mesh_Mature)
 		{
-			HarvestYield.ItemID = SeedID;
-			HarvestYield.Quantity = 5;
+			if (UStaticMesh* MatureAsset = LoadObject<UStaticMesh>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Meshes/SM_Crop_MedHerb.SM_Crop_MedHerb")))
+			{
+				Mesh_Mature->SetStaticMesh(MatureAsset);
+				const int32 NumMats = Mesh_Mature->GetNumMaterials();
+				for (int32 SlotIdx = 0; SlotIdx < NumMats; ++SlotIdx)
+				{
+					Mesh_Mature->SetMaterial(SlotIdx, nullptr);
+				}
+			}
 		}
+	}
+	else
+	{
+		HarvestYield.ItemID = SeedID;
+		HarvestYield.Quantity = 5;
+		HarvestFloatingText = FString::Printf(TEXT("+5 %s"), *SeedID.ToString());
 	}
 
 	if (SoilMesh && DrySoilMaterial && !bIsWatered)
