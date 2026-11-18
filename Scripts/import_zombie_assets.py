@@ -104,9 +104,16 @@ def import_texture(src_file, dest_name, is_normal=False, is_srgb=True):
 def build_zombie_material_master():
     mat_path = f"{MAT_DIR}/M_ZombieMaster"
     if eal.does_asset_exist(mat_path):
-        return unreal.load_asset(mat_path)
+        mat = unreal.load_asset(mat_path)
+        if mat and not mat.get_editor_property("used_with_skeletal_mesh"):
+            mat.set_editor_property("used_with_skeletal_mesh", True)
+            mel.recompile_material(mat)
+            eal.save_loaded_asset(mat)
+            log(f"Enabled used_with_skeletal_mesh=True and recompiled {mat_path}")
+        return mat
 
     mat = asset_tools.create_asset("M_ZombieMaster", MAT_DIR, unreal.Material, unreal.MaterialFactoryNew())
+    mat.set_editor_property("used_with_skeletal_mesh", True)
 
     def tex_param(name, y, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_COLOR):
         node = mel.create_material_expression(mat, unreal.MaterialExpressionTextureSampleParameter2D, -550, y)

@@ -578,7 +578,8 @@ def create_zombie_blueprint(
             mesh_comp.set_skeletal_mesh(zombie_mesh)
         mesh_comp.set_anim_instance_class(None)
         if skin_mat:
-            mesh_comp.set_material(0, skin_mat)
+            for slot_idx in range(max(1, mesh_comp.get_num_materials())):
+                mesh_comp.set_material(slot_idx, skin_mat)
         mesh_comp.set_editor_property("relative_location", unreal.Vector(0.0, 0.0, -90.0))
         mesh_comp.set_editor_property("relative_rotation", unreal.Rotator(0.0, -90.0, 0.0))
         mesh_comp.set_editor_property("relative_scale3d", unreal.Vector(scale, scale, scale))
