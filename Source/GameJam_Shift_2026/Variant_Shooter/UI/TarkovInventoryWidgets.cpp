@@ -4,6 +4,7 @@
 #include "TarkovInventoryWidgets.h"
 #include "Inventory/TarkovInventoryComponent.h"
 #include "Farming/FarmingComponent.h"
+#include "Weapons/ShooterWeapon.h"
 #include "GameFramework/Pawn.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/Border.h"
@@ -771,6 +772,11 @@ void UTarkovBackpackGridWidget::SyncItemWidgets()
 			Root->AddChildToCanvas(Widget);
 			ItemWidgets.Add(Widget);
 		}
+
+		const FString DisplayWithCount = (Item.WeaponClass == nullptr && Item.AmmoCount > 1)
+			? FString::Printf(TEXT("%s (x%d)"), *Item.ItemName, Item.AmmoCount)
+			: Item.ItemName;
+		Widget->SetDisplayName(DisplayWithCount);
 
 		Widget->GridX = Item.GridX;
 		Widget->GridY = Item.GridY;

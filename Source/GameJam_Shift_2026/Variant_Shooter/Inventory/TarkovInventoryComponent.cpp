@@ -206,6 +206,10 @@ bool UTarkovInventoryComponent::EquipItemFromBackpack(FGuid ItemId)
 	// If a weapon is already equipped, swap it into the backpack at ItemToEquip's position
 	if (bHasEquippedWeapon)
 	{
+		if (AShooterWeapon* ActiveWep = ShooterChar->GetCurrentWeapon())
+		{
+			EquippedWeaponItem.AmmoCount = ActiveWep->GetBulletCount();
+		}
 		FInventoryGridItem OldEquipped = EquippedWeaponItem;
 		OldEquipped.GridX = ItemToEquip.GridX;
 		OldEquipped.GridY = ItemToEquip.GridY;
@@ -223,8 +227,13 @@ bool UTarkovInventoryComponent::EquipItemFromBackpack(FGuid ItemId)
 	EquippedWeaponItem = ItemToEquip;
 	bHasEquippedWeapon = true;
 
-	// Tell character to equip the weapon
+	// Tell character to equip the weapon and restore its exact saved magazine bullet count
 	ShooterChar->EquipWeaponClass(ItemToEquip.WeaponClass);
+	if (AShooterWeapon* NewActiveWep = ShooterChar->GetCurrentWeapon())
+	{
+		NewActiveWep->SetBulletCount(ItemToEquip.AmmoCount);
+		EquippedWeaponItem.AmmoCount = NewActiveWep->GetBulletCount();
+	}
 
 	if (SoundItemDrop)
 	{
@@ -260,6 +269,11 @@ bool UTarkovInventoryComponent::UnequipWeaponToBackpack(int32 TargetX, int32 Tar
 	if (!CanPlaceItemAt(TargetX, TargetY, EquippedWeaponItem.Width, EquippedWeaponItem.Height))
 	{
 		return false;
+	}
+
+	if (AShooterWeapon* ActiveWep = ShooterChar->GetCurrentWeapon())
+	{
+		EquippedWeaponItem.AmmoCount = ActiveWep->GetBulletCount();
 	}
 
 	FInventoryGridItem ItemToAdd = EquippedWeaponItem;

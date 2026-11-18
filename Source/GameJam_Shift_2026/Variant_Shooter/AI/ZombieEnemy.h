@@ -35,6 +35,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|Movement", meta = (ClampMin = "40.0"))
 	float ReferenceAnimSpeed = 140.0f;
 
+	/** Play-rate multiplier for the death animation (the imported death clips are long, so this speeds them up) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|Visuals", meta = (ClampMin = "0.5", ClampMax = "4.0"))
+	float DeathPlayRate = 2.2f;
+
 	/** Yaw offset applied to SkeletalMeshComponent so the FBX forward axis aligns with actor +X */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|Visuals")
 	float MeshYawOffset = -90.0f;
@@ -51,9 +55,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|Combat", meta = (ClampMin = "0.25"))
 	float AttackCooldown = 1.25f;
 
-	/** Max detection distance in cm */
+	/** Max distance in cm at which the zombie can see the player */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|AI", meta = (ClampMin = "500.0"))
-	float DetectionRange = 6500.0f;
+	float DetectionRange = 2500.0f;
+
+	/** Half-angle in degrees of the zombie's field of view; the player must be inside this cone to be seen */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|AI", meta = (ClampMin = "10.0", ClampMax = "180.0"))
+	float SightHalfAngle = 70.0f;
+
+	/** Seconds the zombie keeps going to the last place it saw the player before it gives up and roams */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|AI", meta = (ClampMin = "0.0"))
+	float LoseSightDelay = 3.0f;
+
+	/** Radius in cm around the zombie used to pick roam destinations on the navmesh */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|AI", meta = (ClampMin = "100.0"))
+	float RoamRadius = 1500.0f;
+
+	/** Fraction of ZombieMoveSpeed used while roaming */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|AI", meta = (ClampMin = "0.1", ClampMax = "1.0"))
+	float RoamSpeedScale = 0.5f;
+
+	/** Seconds a roaming zombie pauses between destinations */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|AI", meta = (ClampMin = "0.0"))
+	float RoamPauseSeconds = 2.0f;
 
 	/** Optional material override applied to the zombie mesh */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|Visuals")
@@ -94,8 +118,30 @@ protected:
 	/** Switches single-node animation cleanly and scales play rate to actual ground speed */
 	void UpdateLocomotionAnimation();
 
+	/** True if the player is within sight range, inside the field of view, and not blocked by geometry */
+	bool CanSeePlayer(const APawn* PlayerPawn) const;
+
+	/** Picks random navmesh destinations near the zombie and walks between them */
+	void RoamAround(float Now);
+
+	void StopAIMovement();
+
+	/** Turns the zombie toward its current movement direction */
+	void FaceVelocity(float DeltaTime);
+
 private:
 	float LastAttackTime = -100.0f;
 	float ActionAnimEndTime = 0.0f;
 	TObjectPtr<UAnimSequence> CurrentLoopAnim;
+	float CurrentLocoPlayRate = 1.0f;
+
+	bool bAwarePlayer = false;
+	bool bCanSeePlayer = false;
+	bool bMemoryMoveIssued = false;
+	bool bHasRoamTarget = false;
+	float LastSeenTime = -100.0f;
+	float NextRoamTime = 0.0f;
+	float RoamTargetSetTime = 0.0f;
+	FVector LastKnownPlayerLocation = FVector::ZeroVector;
+	FVector RoamTarget = FVector::ZeroVector;
 };

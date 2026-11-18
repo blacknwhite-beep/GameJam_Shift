@@ -23,7 +23,7 @@ public class GameJam_Shift_2026 : ModuleRules
 			"Niagara"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		PrivateDependencyModuleNames.AddRange(new string[] { "NavigationSystem" });
 
 		PublicIncludePaths.AddRange(new string[] {
 			"GameJam_Shift_2026",

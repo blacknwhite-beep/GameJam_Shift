@@ -12,6 +12,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Sound/SoundBase.h"
 #include "Engine/World.h"
+#include "NavigationSystem.h"
 #include "TimerManager.h"
 
 AZombieEnemy::AZombieEnemy()
@@ -120,51 +121,180 @@ void AZombieEnemy::Tick(float DeltaTime)
 	// Pause cleanly if player shifted down into the Farm world
 	if (PlayerPawn->GetActorLocation().Z < -10000.0f)
 	{
-		if (AAIController* AICon = Cast<AAIController>(GetController()))
-		{
-			AICon->StopMovement();
-		}
+		StopAIMovement();
+		bAwarePlayer = false;
+		bCanSeePlayer = false;
 		UpdateLocomotionAnimation();
 		return;
 	}
 
+	const float Now = World->GetTimeSeconds();
 	const FVector MyLoc = GetActorLocation();
 	const FVector PlayerLoc = PlayerPawn->GetActorLocation();
-	const float Dist = FVector::Dist(MyLoc, PlayerLoc);
-	if (Dist > DetectionRange)
+
+	bCanSeePlayer = CanSeePlayer(PlayerPawn);
+	if (bCanSeePlayer)
 	{
-		UpdateLocomotionAnimation();
-		return;
+		bAwarePlayer = true;
+		bMemoryMoveIssued = false;
+		LastSeenTime = Now;
+		LastKnownPlayerLocation = PlayerLoc;
+	}
+	else if (bAwarePlayer && Now - LastSeenTime > LoseSightDelay)
+	{
+		bAwarePlayer = false;
+		bHasRoamTarget = false;
+		NextRoamTime = Now + RoamPauseSeconds;
+		StopAIMovement();
 	}
 
-	// Always turn smoothly to face the player directly
-	const FVector ToPlayer2D = (PlayerLoc - MyLoc).GetSafeNormal2D();
-	if (!ToPlayer2D.IsNearlyZero())
+	if (bCanSeePlayer)
 	{
-		const FRotator DesiredRot(0.0f, ToPlayer2D.Rotation().Yaw, 0.0f);
-		SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredRot, DeltaTime, 12.0f));
+		// Turn smoothly to face the player, then chase or attack while in line of sight
+		const FVector ToPlayer2D = (PlayerLoc - MyLoc).GetSafeNormal2D();
+		if (!ToPlayer2D.IsNearlyZero())
+		{
+			const FRotator DesiredRot(0.0f, ToPlayer2D.Rotation().Yaw, 0.0f);
+			SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredRot, DeltaTime, 12.0f));
+		}
+
+		StopAIMovement();
+		const float Dist = FVector::Dist(MyLoc, PlayerLoc);
+		if (Dist <= MeleeRange)
+		{
+			if (Now - LastAttackTime >= AttackCooldown)
+			{
+				LastAttackTime = Now;
+				PerformMeleeAttack(PlayerPawn);
+			}
+		}
+		else
+		{
+			AddMovementInput(ToPlayer2D, 1.0f);
+		}
 	}
-
-	if (Dist <= MeleeRange)
+	else if (bAwarePlayer)
 	{
-		if (AAIController* AICon = Cast<AAIController>(GetController()))
+		// Lost sight: investigate the last place the player was seen
+		if (!bMemoryMoveIssued)
 		{
-			AICon->StopMovement();
+			if (AAIController* AICon = Cast<AAIController>(GetController()))
+			{
+				AICon->MoveToLocation(LastKnownPlayerLocation, 80.0f);
+			}
+			bMemoryMoveIssued = true;
 		}
-
-		const float Now = World->GetTimeSeconds();
-		if (Now - LastAttackTime >= AttackCooldown)
-		{
-			LastAttackTime = Now;
-			PerformMeleeAttack(PlayerPawn);
-		}
+		FaceVelocity(DeltaTime);
 	}
 	else
 	{
-		AddMovementInput(ToPlayer2D, 1.0f);
+		RoamAround(Now);
+		FaceVelocity(DeltaTime);
+	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->MaxWalkSpeed = bAwarePlayer ? ZombieMoveSpeed : ZombieMoveSpeed * RoamSpeedScale;
 	}
 
 	UpdateLocomotionAnimation();
+}
+
+bool AZombieEnemy::CanSeePlayer(const APawn* PlayerPawn) const
+{
+	UWorld* World = GetWorld();
+	if (!World || !PlayerPawn)
+	{
+		return false;
+	}
+
+	const FVector EyeLoc = GetActorLocation() + FVector(0.0f, 0.0f, 60.0f);
+	const FVector TargetLoc = PlayerPawn->GetActorLocation() + FVector(0.0f, 0.0f, 50.0f);
+	const FVector ToTarget = TargetLoc - EyeLoc;
+
+	if (ToTarget.Size() > DetectionRange)
+	{
+		return false;
+	}
+
+	const FVector Forward2D = GetActorForwardVector().GetSafeNormal2D();
+	const FVector ToTarget2D = ToTarget.GetSafeNormal2D();
+	if (FVector::DotProduct(Forward2D, ToTarget2D) < FMath::Cos(FMath::DegreesToRadians(SightHalfAngle)))
+	{
+		return false;
+	}
+
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ZombieSightTrace), false);
+	Params.AddIgnoredActor(this);
+	if (World->LineTraceSingleByChannel(Hit, EyeLoc, TargetLoc, ECC_Visibility, Params))
+	{
+		return Hit.GetActor() == PlayerPawn;
+	}
+	return true;
+}
+
+void AZombieEnemy::RoamAround(float Now)
+{
+	AAIController* AICon = Cast<AAIController>(GetController());
+	UWorld* World = GetWorld();
+	if (!AICon || !World)
+	{
+		return;
+	}
+
+	if (bHasRoamTarget)
+	{
+		const bool bArrived = FVector::Dist2D(GetActorLocation(), RoamTarget) < 90.0f;
+		const bool bTimedOut = Now - RoamTargetSetTime > 12.0f;
+		if (bArrived || bTimedOut)
+		{
+			bHasRoamTarget = false;
+			NextRoamTime = Now + RoamPauseSeconds;
+			AICon->StopMovement();
+		}
+		return;
+	}
+
+	if (Now < NextRoamTime)
+	{
+		return;
+	}
+
+	if (UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World))
+	{
+		FNavLocation NavLoc;
+		if (NavSys->GetRandomReachablePointInRadius(GetActorLocation(), RoamRadius, NavLoc))
+		{
+			RoamTarget = NavLoc.Location;
+			RoamTargetSetTime = Now;
+			bHasRoamTarget = true;
+			AICon->MoveToLocation(RoamTarget, 60.0f);
+			return;
+		}
+	}
+
+	NextRoamTime = Now + 0.5f;
+}
+
+void AZombieEnemy::StopAIMovement()
+{
+	if (AAIController* AICon = Cast<AAIController>(GetController()))
+	{
+		AICon->StopMovement();
+	}
+}
+
+void AZombieEnemy::FaceVelocity(float DeltaTime)
+{
+	const FVector Vel2D = GetVelocity().GetSafeNormal2D();
+	if (Vel2D.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FRotator DesiredRot(0.0f, Vel2D.Rotation().Yaw, 0.0f);
+	SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredRot, DeltaTime, 6.0f));
 }
 
 void AZombieEnemy::UpdateLocomotionAnimation()
@@ -184,14 +314,14 @@ void AZombieEnemy::UpdateLocomotionAnimation()
 
 	const float Speed2D = GetVelocity().Size2D();
 	UAnimSequence* TargetAnim = IdleAnim;
-	float PlayRate = 1.0f;
+	float TargetPlayRate = 1.0f;
 
 	if (Speed2D > 15.0f)
 	{
 		TargetAnim = (bUseRunAnim && RunAnim) ? RunAnim : WalkAnim;
 		if (ReferenceAnimSpeed > 1.0f)
 		{
-			PlayRate = FMath::Clamp(Speed2D / ReferenceAnimSpeed, 0.55f, 1.85f);
+			TargetPlayRate = FMath::Clamp(Speed2D / ReferenceAnimSpeed, 0.55f, 1.85f);
 		}
 	}
 
@@ -200,7 +330,9 @@ void AZombieEnemy::UpdateLocomotionAnimation()
 		SkelMesh->PlayAnimation(TargetAnim, true);
 		CurrentLoopAnim = TargetAnim;
 	}
-	SkelMesh->SetPlayRate(PlayRate);
+
+	CurrentLocoPlayRate = FMath::FInterpTo(CurrentLocoPlayRate, TargetPlayRate, World->GetDeltaSeconds(), 8.0f);
+	SkelMesh->SetPlayRate(CurrentLocoPlayRate);
 }
 
 void AZombieEnemy::PerformMeleeAttack(AActor* TargetActor)
@@ -252,6 +384,7 @@ void AZombieEnemy::Die()
 	if (DeathAnim && GetMesh())
 	{
 		bIsDead = true;
+		StopAIMovement();
 		Tags.Add(DeathTag);
 		OnPawnDeath.Broadcast();
 
@@ -265,7 +398,7 @@ void AZombieEnemy::Die()
 		GetCharacterMovement()->StopActiveMovement();
 
 		GetMesh()->PlayAnimation(DeathAnim, false);
-		GetMesh()->SetPlayRate(1.25f);
+		GetMesh()->SetPlayRate(DeathPlayRate);
 		CurrentLoopAnim = nullptr;
 
 		GetWorld()->GetTimerManager().SetTimer(DeathTimer, this, &AZombieEnemy::DeferredDestruction, DeferredDestructionTime, false);

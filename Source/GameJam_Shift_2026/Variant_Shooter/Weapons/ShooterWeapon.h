@@ -221,4 +221,18 @@ public:
 
 	/** Returns the current bullet count */
 	int32 GetBulletCount() const { return CurrentBullets; }
+
+	/** Sets the current magazine bullet count (clamped to [0, MagazineSize]) and updates HUD */
+	void SetBulletCount(int32 NewCount);
+
+	/** Returns display name of the ammo type required by this weapon (e.g. "9mm Pistol Ammo") */
+	UFUNCTION(BlueprintPure, Category="Ammo")
+	FString GetRequiredAmmoDisplayName() const;
+
+	/** Returns total matching ammo rounds currently stored in the owner's Tarkov Backpack */
+	UFUNCTION(BlueprintPure, Category="Ammo")
+	int32 GetAvailableInventoryAmmo() const;
+
+	/** Consumes up to RoundsNeeded matching ammo from the owner's Tarkov Backpack */
+	int32 ConsumeInventoryAmmo(int32 RoundsNeeded);
 };

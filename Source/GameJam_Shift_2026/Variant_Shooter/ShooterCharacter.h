@@ -310,6 +310,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Weapons")
 	TSubclassOf<AShooterWeapon> GetInitialWeaponClass() const { return InitialWeaponClass; }
 
+	/** Returns the currently active weapon */
+	UFUNCTION(BlueprintPure, Category="Weapons")
+	AShooterWeapon* GetCurrentWeapon() const { return CurrentWeapon; }
+
 	//~Begin IShooterWeaponHolder interface
 
 	/** Attaches a weapon's meshes to the owner */

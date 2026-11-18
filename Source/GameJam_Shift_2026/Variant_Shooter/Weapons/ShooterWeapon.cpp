@@ -2,6 +2,8 @@
 
 
 #include "ShooterWeapon.h"
+#include "Inventory/TarkovInventoryComponent.h"
+#include "Engine/Engine.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "Engine/World.h"
@@ -48,6 +50,21 @@ void AShooterWeapon::BeginPlay()
 	// cast the weapon owner
 	WeaponOwner = Cast<IShooterWeaponHolder>(GetOwner());
 	PawnOwner = Cast<APawn>(GetOwner());
+
+	// Enforce sensible max magazine capacities per weapon archetype
+	const FString ClassStr = GetClass()->GetName();
+	if (ClassStr.Contains(TEXT("Pistol"), ESearchCase::IgnoreCase))
+	{
+		MagazineSize = FMath::Clamp(MagazineSize, 1, 12);
+	}
+	else if (ClassStr.Contains(TEXT("Shotgun"), ESearchCase::IgnoreCase) || ClassStr.Contains(TEXT("Grenade"), ESearchCase::IgnoreCase) || ClassStr.Contains(TEXT("Launcher"), ESearchCase::IgnoreCase))
+	{
+		MagazineSize = FMath::Clamp(MagazineSize, 1, 8);
+	}
+	else if (ClassStr.Contains(TEXT("Rifle"), ESearchCase::IgnoreCase))
+	{
+		MagazineSize = FMath::Clamp(MagazineSize, 1, 30);
+	}
 
 	// fill the first ammo clip
 	CurrentBullets = MagazineSize;
@@ -140,6 +157,13 @@ void AShooterWeapon::StartReload()
 	// only reload when the weapon can actually accept more ammunition
 	if (!CanReload())
 	{
+		if (CurrentBullets < MagazineSize && GetAvailableInventoryAmmo() <= 0 && GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				9160, 3.0f, FColor::Orange,
+				FString::Printf(TEXT("[NO AMMO] No %s in Tarkov Backpack! Harvest crops on the Farm!"), *GetRequiredAmmoDisplayName())
+			);
+		}
 		return;
 	}
 
@@ -168,8 +192,21 @@ void AShooterWeapon::StartReload()
 
 void AShooterWeapon::FinishReload()
 {
-	// refill the magazine
-	CurrentBullets = MagazineSize;
+	// Pull matching ammo directly from the player's Tarkov Backpack
+	const int32 RoundsNeeded = FMath::Max(0, MagazineSize - CurrentBullets);
+	const int32 RoundsLoaded = ConsumeInventoryAmmo(RoundsNeeded);
+	CurrentBullets = FMath::Clamp(CurrentBullets + RoundsLoaded, 0, MagazineSize);
+
+	if (AActor* OwnerActor = GetOwner())
+	{
+		if (UTarkovInventoryComponent* Inv = OwnerActor->FindComponentByClass<UTarkovInventoryComponent>())
+		{
+			if (Inv->bHasEquippedWeapon)
+			{
+				Inv->EquippedWeaponItem.AmmoCount = CurrentBullets;
+			}
+		}
+	}
 
 	// lower the reloading flag, the weapon can fire again
 	bIsReloading = false;
@@ -230,6 +267,12 @@ bool AShooterWeapon::CanReload() const
 
 	// nothing to gain from reloading a full magazine
 	if (CurrentBullets >= MagazineSize)
+	{
+		return false;
+	}
+
+	// require matching ammo in the player's Tarkov Backpack
+	if (GetAvailableInventoryAmmo() <= 0)
 	{
 		return false;
 	}
@@ -341,6 +384,17 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	// consume bullets
 	--CurrentBullets;
 
+	if (AActor* OwnerActor = GetOwner())
+	{
+		if (UTarkovInventoryComponent* Inv = OwnerActor->FindComponentByClass<UTarkovInventoryComponent>())
+		{
+			if (Inv->bHasEquippedWeapon)
+			{
+				Inv->EquippedWeaponItem.AmmoCount = CurrentBullets;
+			}
+		}
+	}
+
 	// update the weapon HUD
 	// note: an empty magazine is no longer refilled silently here.
 	// pulling the trigger while empty plays a dry fire and starts a reload instead
@@ -370,4 +424,129 @@ const TSubclassOf<UAnimInstance>& AShooterWeapon::GetFirstPersonAnimInstanceClas
 const TSubclassOf<UAnimInstance>& AShooterWeapon::GetThirdPersonAnimInstanceClass() const
 {
 	return ThirdPersonAnimInstanceClass;
+}
+
+void AShooterWeapon::SetBulletCount(int32 NewCount)
+{
+	CurrentBullets = FMath::Clamp(NewCount, 0, MagazineSize);
+	if (WeaponOwner)
+	{
+		WeaponOwner->UpdateWeaponHUD(CurrentBullets, MagazineSize);
+	}
+}
+
+FString AShooterWeapon::GetRequiredAmmoDisplayName() const
+{
+	const FString ClassStr = GetClass()->GetName();
+	if (ClassStr.Contains(TEXT("Pistol"), ESearchCase::IgnoreCase))
+	{
+		return TEXT("9mm Pistol Ammo");
+	}
+	if (ClassStr.Contains(TEXT("Shotgun"), ESearchCase::IgnoreCase) || ClassStr.Contains(TEXT("Grenade"), ESearchCase::IgnoreCase) || ClassStr.Contains(TEXT("Launcher"), ESearchCase::IgnoreCase))
+	{
+		return TEXT("12G Shotgun Shells");
+	}
+	if (ClassStr.Contains(TEXT("Rifle"), ESearchCase::IgnoreCase))
+	{
+		return TEXT("5.56mm Rifle Ammo");
+	}
+	return TEXT("9mm Pistol Ammo");
+}
+
+namespace
+{
+	bool DoesItemMatchWeaponAmmo(const FInventoryGridItem& Item, const FString& RequiredAmmoName)
+	{
+		if (Item.WeaponClass != nullptr || Item.AmmoCount <= 0)
+		{
+			return false;
+		}
+		if (Item.ItemName.Equals(RequiredAmmoName, ESearchCase::IgnoreCase))
+		{
+			return true;
+		}
+		if (RequiredAmmoName.Contains(TEXT("9mm")) && (Item.ItemName.Contains(TEXT("9mm"), ESearchCase::IgnoreCase) || Item.ItemName.Contains(TEXT("Pistol Ammo"), ESearchCase::IgnoreCase)))
+		{
+			return true;
+		}
+		if (RequiredAmmoName.Contains(TEXT("12G")) && (Item.ItemName.Contains(TEXT("12G"), ESearchCase::IgnoreCase) || Item.ItemName.Contains(TEXT("Shotgun"), ESearchCase::IgnoreCase)))
+		{
+			return true;
+		}
+		if (RequiredAmmoName.Contains(TEXT("5.56")) && (Item.ItemName.Contains(TEXT("5.56"), ESearchCase::IgnoreCase) || Item.ItemName.Contains(TEXT("Rifle Ammo"), ESearchCase::IgnoreCase)))
+		{
+			return true;
+		}
+		return false;
+	}
+}
+
+int32 AShooterWeapon::GetAvailableInventoryAmmo() const
+{
+	const AActor* OwnerActor = GetOwner();
+	if (!OwnerActor)
+	{
+		return 0;
+	}
+
+	const UTarkovInventoryComponent* Inv = OwnerActor->FindComponentByClass<UTarkovInventoryComponent>();
+	if (!Inv)
+	{
+		return 0;
+	}
+
+	const FString ReqName = GetRequiredAmmoDisplayName();
+	int32 Total = 0;
+	for (const FInventoryGridItem& Item : Inv->BackpackItems)
+	{
+		if (DoesItemMatchWeaponAmmo(Item, ReqName))
+		{
+			Total += Item.AmmoCount;
+		}
+	}
+	return Total;
+}
+
+int32 AShooterWeapon::ConsumeInventoryAmmo(int32 RoundsNeeded)
+{
+	if (RoundsNeeded <= 0)
+	{
+		return 0;
+	}
+
+	AActor* OwnerActor = GetOwner();
+	UTarkovInventoryComponent* Inv = OwnerActor ? OwnerActor->FindComponentByClass<UTarkovInventoryComponent>() : nullptr;
+	if (!Inv)
+	{
+		return 0;
+	}
+
+	const FString ReqName = GetRequiredAmmoDisplayName();
+	int32 RemainingToConsume = RoundsNeeded;
+	int32 TotalConsumed = 0;
+
+	for (int32 i = Inv->BackpackItems.Num() - 1; i >= 0 && RemainingToConsume > 0; --i)
+	{
+		FInventoryGridItem& Item = Inv->BackpackItems[i];
+		if (!DoesItemMatchWeaponAmmo(Item, ReqName))
+		{
+			continue;
+		}
+
+		const int32 Take = FMath::Min(RemainingToConsume, Item.AmmoCount);
+		Item.AmmoCount -= Take;
+		RemainingToConsume -= Take;
+		TotalConsumed += Take;
+
+		if (Item.AmmoCount <= 0)
+		{
+			Inv->BackpackItems.RemoveAt(i);
+		}
+	}
+
+	if (TotalConsumed > 0)
+	{
+		Inv->OnInventoryUpdated.Broadcast();
+	}
+	return TotalConsumed;
 }
