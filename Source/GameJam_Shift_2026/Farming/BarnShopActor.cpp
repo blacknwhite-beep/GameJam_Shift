@@ -32,7 +32,7 @@ ABarnShopActor::ABarnShopActor()
 	SignText->SetupAttachment(RootComponent);
 	SignText->SetRelativeLocation(FVector(0.0f, 20.0f, 195.0f));
 	SignText->SetRelativeRotation(FRotator(0.0f, 90.0f, 0.0f));
-	SignText->SetText(FText::FromString(TEXT("BARN SEED & PLOT SHOP\n[Press B or Click Counter]")));
+	SignText->SetText(FText::FromString(TEXT("BARN SEED, PLOT & GUN SHOP\n[Press B or Click Counter]")));
 	SignText->SetTextRenderColor(FColor(255, 220, 95));
 	SignText->SetWorldSize(26.0f);
 	SignText->SetHorizontalAlignment(EHorizTextAligment::EHTA_Center);

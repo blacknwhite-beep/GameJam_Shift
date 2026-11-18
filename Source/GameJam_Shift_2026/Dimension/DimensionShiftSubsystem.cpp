@@ -173,8 +173,10 @@ void UDimensionShiftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	CurrentDimension = EGameDimension::Combat;
 	LastShiftTime = -100.0f;
 	CurrentGold = StartingGold;
+	UnlockedWeaponSlots.Reset();
+	UnlockedWeaponSlots.Add(0); // Slot 0 (M1911 Classic) is always owned at the start
 	PrototypeFarmPlatform.Reset();
-	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem initialized. Starting in Combat dimension with %d Gold."), CurrentGold);
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem initialized. Starting in Combat dimension with %d Gold and M1911 Classic."), CurrentGold);
 }
 
 void UDimensionShiftSubsystem::Deinitialize()
@@ -492,4 +494,19 @@ bool UDimensionShiftSubsystem::SpendGold(int32 Amount)
 	OnGoldChanged.Broadcast(CurrentGold, -Amount);
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Economy: Spent %d Gold -> Balance: %d"), Amount, CurrentGold);
 	return true;
+}
+
+bool UDimensionShiftSubsystem::IsWeaponUnlocked(int32 SlotIndex) const
+{
+	if (SlotIndex == 0)
+	{
+		return true; // Slot 0 (M1911 Classic) is always unlocked
+	}
+	return UnlockedWeaponSlots.Contains(SlotIndex);
+}
+
+void UDimensionShiftSubsystem::UnlockWeapon(int32 SlotIndex)
+{
+	UnlockedWeaponSlots.Add(SlotIndex);
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Economy: Unlocked weapon slot %d"), SlotIndex);
 }

@@ -386,10 +386,20 @@ void UShooterWeaponWheelWidget::RefreshWheelSlots()
 		AShooterWeapon* Wep = Weapons.IsValidIndex(i) ? Weapons[i] : nullptr;
 		const bool bIsHovered = (i == HoveredSlotIndex);
 		const bool bIsEquipped = (Wep && Wep == EquippedWep);
+		const bool bIsUnlocked = OwnerCharacter->IsWeaponSlotUnlocked(i);
+		const int32 SlotPrice = AShooterCharacter::GetWeaponSlotPrice(i);
 
 		if (SlotCardBorders.IsValidIndex(i) && SlotCardBorders[i])
 		{
-			if (bIsHovered)
+			if (!bIsUnlocked)
+			{
+				SlotCardBorders[i]->SetBrushColor(
+					bIsHovered
+					? FLinearColor(0.22f, 0.10f, 0.10f, 0.96f)
+					: FLinearColor(0.03f, 0.04f, 0.05f, 0.85f)
+				);
+			}
+			else if (bIsHovered)
 			{
 				SlotCardBorders[i]->SetBrushColor(FLinearColor(0.14f, 0.36f, 0.56f, 0.98f));
 			}
@@ -405,11 +415,18 @@ void UShooterWeaponWheelWidget::RefreshWheelSlots()
 
 		if (SlotKeyBadges.IsValidIndex(i) && SlotKeyBadges[i])
 		{
-			SlotKeyBadges[i]->SetBrushColor(
-				bIsHovered
-				? FLinearColor(0.95f, 0.72f, 0.15f, 1.0f)
-				: FLinearColor(0.15f, 0.20f, 0.28f, 1.0f)
-			);
+			if (!bIsUnlocked)
+			{
+				SlotKeyBadges[i]->SetBrushColor(FLinearColor(0.28f, 0.12f, 0.12f, 1.0f));
+			}
+			else
+			{
+				SlotKeyBadges[i]->SetBrushColor(
+					bIsHovered
+					? FLinearColor(0.95f, 0.72f, 0.15f, 1.0f)
+					: FLinearColor(0.15f, 0.20f, 0.28f, 1.0f)
+				);
+			}
 		}
 
 		if (Wep)
@@ -421,11 +438,18 @@ void UShooterWeaponWheelWidget::RefreshWheelSlots()
 			if (SlotNameTexts.IsValidIndex(i) && SlotNameTexts[i])
 			{
 				SlotNameTexts[i]->SetText(FText::FromString(Wep->GetWeaponDisplayName().ToUpper()));
-				SlotNameTexts[i]->SetColorAndOpacity(FSlateColor(
-					bIsHovered
-					? FLinearColor(1.0f, 0.95f, 0.45f, 1.0f)
-					: FLinearColor(0.92f, 0.95f, 0.98f, 1.0f)
-				));
+				if (!bIsUnlocked)
+				{
+					SlotNameTexts[i]->SetColorAndOpacity(FSlateColor(FLinearColor(0.55f, 0.58f, 0.62f, 1.0f)));
+				}
+				else
+				{
+					SlotNameTexts[i]->SetColorAndOpacity(FSlateColor(
+						bIsHovered
+						? FLinearColor(1.0f, 0.95f, 0.45f, 1.0f)
+						: FLinearColor(0.92f, 0.95f, 0.98f, 1.0f)
+					));
+				}
 			}
 			if (SlotSubtitleTexts.IsValidIndex(i) && SlotSubtitleTexts[i])
 			{
@@ -433,7 +457,16 @@ void UShooterWeaponWheelWidget::RefreshWheelSlots()
 			}
 			if (SlotAmmoTexts.IsValidIndex(i) && SlotAmmoTexts[i])
 			{
-				SlotAmmoTexts[i]->SetText(FText::FromString(FString::Printf(TEXT("MAG: %d/%d   |   BAG: %d"), CurBullets, MagSize, BagAmmo)));
+				if (bIsUnlocked)
+				{
+					SlotAmmoTexts[i]->SetText(FText::FromString(FString::Printf(TEXT("MAG: %d/%d   |   BAG: %d"), CurBullets, MagSize, BagAmmo)));
+					SlotAmmoTexts[i]->SetColorAndOpacity(FSlateColor(FLinearColor(0.45f, 0.92f, 0.60f, 1.0f)));
+				}
+				else
+				{
+					SlotAmmoTexts[i]->SetText(FText::FromString(FString::Printf(TEXT("LOCKED — %dG IN SHOP"), SlotPrice)));
+					SlotAmmoTexts[i]->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.42f, 0.35f, 1.0f)));
+				}
 			}
 
 			if (bIsHovered)
@@ -448,7 +481,16 @@ void UShooterWeaponWheelWidget::RefreshWheelSlots()
 				}
 				if (CenterWeaponAmmoText)
 				{
-					CenterWeaponAmmoText->SetText(FText::FromString(FString::Printf(TEXT("MAG: %d / %d   |   BACKPACK: %d"), CurBullets, MagSize, BagAmmo)));
+					if (bIsUnlocked)
+					{
+						CenterWeaponAmmoText->SetText(FText::FromString(FString::Printf(TEXT("MAG: %d / %d   |   BACKPACK: %d"), CurBullets, MagSize, BagAmmo)));
+						CenterWeaponAmmoText->SetColorAndOpacity(FSlateColor(FLinearColor(0.40f, 0.98f, 0.58f, 1.0f)));
+					}
+					else
+					{
+						CenterWeaponAmmoText->SetText(FText::FromString(FString::Printf(TEXT("LOCKED — BUY IN BARN SHOP (%dG)"), SlotPrice)));
+						CenterWeaponAmmoText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.45f, 0.35f, 1.0f)));
+					}
 				}
 			}
 		}

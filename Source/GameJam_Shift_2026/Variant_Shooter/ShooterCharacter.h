@@ -300,6 +300,13 @@ public:
 	/** Returns the character's owned weapons array (the 7 guns in the radial wheel) */
 	const TArray<AShooterWeapon*>& GetOwnedWeapons() const { return OwnedWeapons; }
 
+	/** Returns true if the weapon slot (0..6) has been unlocked/purchased in the Barn Shop */
+	UFUNCTION(BlueprintPure, Category = "Weapons")
+	bool IsWeaponSlotUnlocked(int32 WeaponIndex) const;
+
+	/** Returns the Gold store price for the weapon slot (0..6) */
+	static int32 GetWeaponSlotPrice(int32 WeaponIndex);
+
 	/** Opens the 7-slot radial weapon wheel when [TAB] is pressed/held in Combat */
 	void OnTabPressed();
 

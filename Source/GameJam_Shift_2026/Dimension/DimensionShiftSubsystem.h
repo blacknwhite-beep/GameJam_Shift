@@ -126,7 +126,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Economy")
 	bool SpendGold(int32 Amount);
 
+	// -------------------------------------------------------------------------
+	// Weapon Arsenal Unlocks (Slots 0..6)
+	// -------------------------------------------------------------------------
+
+	/** Returns true if the weapon slot (0..6) is unlocked. Slot 0 (M1911 Classic) is always unlocked. */
+	UFUNCTION(BlueprintPure, Category = "Economy|Weapons")
+	bool IsWeaponUnlocked(int32 SlotIndex) const;
+
+	/** Unlocks the given weapon slot (0..6). */
+	UFUNCTION(BlueprintCallable, Category = "Economy|Weapons")
+	void UnlockWeapon(int32 SlotIndex);
+
 private:
+	/** Set of unlocked weapon slot indices (Slot 0 = M1911 Classic is unlocked by default). */
+	TSet<int32> UnlockedWeaponSlots;
 	/** Called once the streamed farm level becomes visible. */
 	UFUNCTION()
 	void HandleFarmLevelShown();

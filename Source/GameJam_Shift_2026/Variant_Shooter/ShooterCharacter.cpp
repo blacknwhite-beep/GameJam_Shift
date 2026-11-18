@@ -426,31 +426,22 @@ void AShooterCharacter::DoSwitchWeapon()
 		return;
 	}
 
-	// ensure we have at least two weapons two switch between
-	if (OwnedWeapons.Num() > 1 && !IsDead())
+	if (OwnedWeapons.Num() <= 1 || IsDead())
 	{
-		// deactivate the old weapon
-		CurrentWeapon->DeactivateWeapon();
+		return;
+	}
 
-		// find the index of the current weapon in the owned list
-		int32 WeaponIndex = OwnedWeapons.Find(CurrentWeapon);
+	const int32 CurrentIndex = OwnedWeapons.Find(CurrentWeapon);
+	const int32 StartIdx = (CurrentIndex == INDEX_NONE) ? 0 : CurrentIndex;
 
-		// is this the last weapon?
-		if (WeaponIndex == OwnedWeapons.Num() - 1)
+	for (int32 Step = 1; Step < OwnedWeapons.Num(); ++Step)
+	{
+		const int32 CandidateIdx = (StartIdx + Step) % OwnedWeapons.Num();
+		if (IsWeaponSlotUnlocked(CandidateIdx))
 		{
-			// loop back to the beginning of the array
-			WeaponIndex = 0;
+			EquipWeaponByIndex(CandidateIdx);
+			return;
 		}
-		else {
-			// select the next weapon index
-			++WeaponIndex;
-		}
-
-		// set the new weapon as current
-		CurrentWeapon = OwnedWeapons[WeaponIndex];
-
-		// activate the new weapon
-		CurrentWeapon->ActivateWeapon();
 	}
 }
 
@@ -1125,6 +1116,28 @@ void AShooterCharacter::OnTabReleased()
 	}
 }
 
+bool AShooterCharacter::IsWeaponSlotUnlocked(int32 WeaponIndex) const
+{
+	if (WeaponIndex == 0)
+	{
+		return true; // Slot 0 (M1911 Classic) is always owned at the start
+	}
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			return Sub->IsWeaponUnlocked(WeaponIndex);
+		}
+	}
+	return false;
+}
+
+int32 AShooterCharacter::GetWeaponSlotPrice(int32 WeaponIndex)
+{
+	static const int32 Prices[7] = { 0, 1000, 1800, 2600, 3500, 4500, 6000 };
+	return (WeaponIndex >= 0 && WeaponIndex < 7) ? Prices[WeaponIndex] : 1000;
+}
+
 void AShooterCharacter::EquipWeaponByIndex(int32 WeaponIndex)
 {
 	if (IsDead() || !OwnedWeapons.IsValidIndex(WeaponIndex))
@@ -1135,6 +1148,19 @@ void AShooterCharacter::EquipWeaponByIndex(int32 WeaponIndex)
 	AShooterWeapon* TargetWeapon = OwnedWeapons[WeaponIndex];
 	if (!TargetWeapon)
 	{
+		return;
+	}
+
+	if (!IsWeaponSlotUnlocked(WeaponIndex))
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				9175, 3.0f, FColor::Orange,
+				FString::Printf(TEXT("[LOCKED WEAPON] %s is locked! Buy it in the Barn Shop -> GUNS Tab (%d Gold)."),
+					*TargetWeapon->GetWeaponDisplayName(), GetWeaponSlotPrice(WeaponIndex))
+			);
+		}
 		return;
 	}
 
