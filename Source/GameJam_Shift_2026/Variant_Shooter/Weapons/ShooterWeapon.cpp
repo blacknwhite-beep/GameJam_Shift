@@ -155,7 +155,8 @@ void AShooterWeapon::Tick(float DeltaTime)
 	}
 
 	FirstPersonGunMesh->SetRelativeLocation(BaseGunRelativeLocation + CurrentRecoilOffset + ReloadOffset + EquipOffset);
-	FirstPersonGunMesh->SetRelativeRotation(BaseGunRelativeRotation + CurrentRecoilRot + ReloadRot + EquipRot);
+	const FQuat FinalQuat = FQuat(BaseGunRelativeRotation) * FQuat(CurrentRecoilRot + ReloadRot + EquipRot);
+	FirstPersonGunMesh->SetRelativeRotation(FinalQuat.Rotator());
 }
 
 void AShooterWeapon::EndPlay(EEndPlayReason::Type EndPlayReason)
@@ -519,7 +520,7 @@ FTransform AShooterWeapon::CalculateProjectileSpawnTransform(const FVector& Targ
 	FVector MuzzleLoc = FirstPersonMesh->GetSocketLocation(MuzzleSocketName);
 	if (FirstPersonGunMesh && FirstPersonGunMesh->GetStaticMesh())
 	{
-		MuzzleLoc = FirstPersonGunMesh->GetComponentLocation() + FirstPersonGunMesh->GetRightVector() * 18.0f + FirstPersonGunMesh->GetUpVector() * 4.0f;
+		MuzzleLoc = FirstPersonGunMesh->GetComponentLocation() + FirstPersonMesh->GetRightVector() * 18.0f + FirstPersonMesh->GetUpVector() * 4.0f;
 	}
 
 	// calculate the spawn location ahead of the muzzle

@@ -1235,25 +1235,25 @@ void AShooterCharacter::SpawnAllGunPackWeapons()
 	};
 
 	const FGunPackSpec Specs[7] = {
-		// 1. M1911 Classic
+		// 1. M1911 Classic (FBX authored pointing -Y, so rotate Yaw=180 deg so barrel points forward +Y and shift grip to HandGrip_R)
 		{
 			TEXT("M1911 Classic"),
 			TEXT("Semi-Auto Sidearm"),
 			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_M1911.SM_Gun_M1911"),
 			TEXT("9mm Pistol Ammo"),
 			12, false, 0.20f, 1.35f, -0.05f, 10.0f,
-			FVector(0.0f, 4.0f, 2.0f), FRotator(0.0f, 0.0f, 0.0f), 0.052f, true
+			FVector(0.0f, 9.8f, 3.2f), FRotator(0.0f, 180.0f, 0.0f), 0.052f, true
 		},
-		// 2. M1911 Tactical
+		// 2. M1911 Tactical (FBX authored pointing -Y, so rotate Yaw=180 deg so barrel points forward +Y and shift grip to HandGrip_R)
 		{
 			TEXT("M1911 Tactical"),
 			TEXT("Custom Match Pistol"),
 			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_M1911Tactical.SM_Gun_M1911Tactical"),
 			TEXT("9mm Pistol Ammo"),
 			15, false, 0.15f, 1.25f, -0.04f, 8.0f,
-			FVector(0.0f, 4.0f, 2.0f), FRotator(0.0f, 0.0f, 0.0f), 0.052f, true
+			FVector(0.0f, 9.8f, 3.2f), FRotator(0.0f, 180.0f, 0.0f), 0.052f, true
 		},
-		// 3. MP5 Submachine Gun
+		// 3. MP5 Submachine Gun (FBX authored pointing +Y)
 		{
 			TEXT("MP5 SMG"),
 			TEXT("9mm Tactical SMG"),
@@ -1262,7 +1262,7 @@ void AShooterCharacter::SpawnAllGunPackWeapons()
 			30, true, 0.085f, 1.55f, -0.06f, 16.0f,
 			FVector(0.0f, 8.0f, 3.0f), FRotator(0.0f, 0.0f, 0.0f), 0.058f, false
 		},
-		// 4. MP7 PDW
+		// 4. MP7 PDW (FBX authored pointing +Y)
 		{
 			TEXT("MP7 Personal Defense"),
 			TEXT("High-ROF Compact SMG"),
@@ -1271,7 +1271,7 @@ void AShooterCharacter::SpawnAllGunPackWeapons()
 			40, true, 0.068f, 1.45f, -0.055f, 18.0f,
 			FVector(0.0f, 9.0f, 4.0f), FRotator(0.0f, 0.0f, 0.0f), 0.065f, false
 		},
-		// 5. M4A1 Carbine
+		// 5. M4A1 Carbine (FBX authored pointing +Y)
 		{
 			TEXT("M4A1 Carbine"),
 			TEXT("Full-Auto Assault Carbine"),
@@ -1280,23 +1280,23 @@ void AShooterCharacter::SpawnAllGunPackWeapons()
 			30, true, 0.095f, 1.65f, -0.085f, 14.0f,
 			FVector(0.0f, 11.0f, 2.5f), FRotator(0.0f, 0.0f, 0.0f), 0.056f, false
 		},
-		// 6. M16A4 Assault Rifle
+		// 6. M16A4 Assault Rifle (FBX authored pointing -Y, so rotate Yaw=180 deg so barrel points forward +Y)
 		{
 			TEXT("M16A4 Rifle"),
 			TEXT("Precision Service Rifle"),
 			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_M16.SM_Gun_M16"),
 			TEXT("5.56mm Rifle Ammo"),
 			30, true, 0.11f, 1.70f, -0.075f, 9.0f,
-			FVector(0.0f, 14.0f, 3.0f), FRotator(0.0f, 0.0f, 0.0f), 0.048f, false
+			FVector(0.0f, 15.0f, 3.0f), FRotator(0.0f, 180.0f, 0.0f), 0.048f, false
 		},
-		// 7. FN SCAR-H
+		// 7. FN SCAR-H (FBX authored pointing +Y)
 		{
 			TEXT("SCAR-H Heavy"),
 			TEXT("Heavy Battle Rifle"),
 			TEXT("/Game/Dev_Blueprint/Weapons/Meshes/SM_Gun_SCAR.SM_Gun_SCAR"),
 			TEXT("5.56mm Rifle Ammo"),
 			20, true, 0.135f, 1.80f, -0.11f, 7.0f,
-			FVector(0.0f, 14.0f, 3.0f), FRotator(0.0f, 0.0f, 0.0f), 0.048f, false
+			FVector(0.0f, 16.0f, 3.0f), FRotator(0.0f, 0.0f, 0.0f), 0.048f, false
 		}
 	};
 
