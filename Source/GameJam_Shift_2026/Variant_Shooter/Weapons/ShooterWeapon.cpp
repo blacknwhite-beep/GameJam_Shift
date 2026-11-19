@@ -15,6 +15,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/PointLightComponent.h"
+#include "Components/AudioComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
@@ -84,6 +85,10 @@ AShooterWeapon::AShooterWeapon()
 	MuzzleFlashLight->SetLightColor(FColor(255, 195, 95));
 	MuzzleFlashLight->SetCastShadows(false);
 	MuzzleFlashLight->SetVisibility(false);
+
+	AutoFireAudioComp = CreateDefaultSubobject<UAudioComponent>(TEXT("AutoFireAudioComp"));
+	AutoFireAudioComp->SetupAttachment(FirstPersonMesh);
+	AutoFireAudioComp->bAutoActivate = false;
 }
 
 void AShooterWeapon::BeginPlay()
@@ -318,26 +323,36 @@ void AShooterWeapon::StartFiring()
 		return;
 	}
 
+	// If already holding trigger on a full-auto weapon, don't reset the active refire loop
+	if (bIsFiring && bFullAuto)
+	{
+		return;
+	}
+
 	// raise the firing flag
 	bIsFiring = true;
 
 	// check how much time has passed since we last shot
-	// this may be under the refire rate if the weapon shoots slow enough and the player is spamming the trigger
 	const float TimeSinceLastShot = GetWorld()->GetTimeSeconds() - TimeOfLastShot;
 
-	if (TimeSinceLastShot > RefireRate)
+	if (TimeSinceLastShot >= RefireRate)
 	{
 		// fire the weapon right away
 		Fire();
+	}
+	else if (bFullAuto)
+	{
+		// schedule the next shot for the remaining cooldown time (not TimeSinceLastShot!)
+		const float RemainingDelay = FMath::Max(0.01f, RefireRate - TimeSinceLastShot);
+		GetWorld()->GetTimerManager().SetTimer(RefireTimer, this, &AShooterWeapon::Fire, RemainingDelay, false);
+	}
+}
 
-	} else {
-
-		// if we're full auto, schedule the next shot
-		if (bFullAuto)
-		{
-			GetWorld()->GetTimerManager().SetTimer(RefireTimer, this, &AShooterWeapon::Fire, TimeSinceLastShot, false);
-		}
-
+void AShooterWeapon::StopAutoFireAudio()
+{
+	if (AutoFireAudioComp && AutoFireAudioComp->IsPlaying())
+	{
+		AutoFireAudioComp->FadeOut(0.08f, 0.0f);
 	}
 }
 
@@ -345,6 +360,9 @@ void AShooterWeapon::StopFiring()
 {
 	// lower the firing flag
 	bIsFiring = false;
+
+	// stop continuous full-auto firing sound cleanly
+	StopAutoFireAudio();
 
 	// clear the refire timer
 	GetWorld()->GetTimerManager().ClearTimer(RefireTimer);
@@ -508,6 +526,8 @@ void AShooterWeapon::Fire()
 	// handle pulling the trigger on an empty magazine
 	if (CurrentBullets <= 0)
 	{
+		StopAutoFireAudio();
+
 		// play the dry fire click on the empty chamber
 		if (DryFireSound)
 		{
@@ -569,9 +589,24 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	AShooterProjectile* Projectile = GetWorld()->SpawnActor<AShooterProjectile>(ProjectileClass, ProjectileTransform, SpawnParams);
 
 	// play the firing sound at the muzzle
+	// Full-auto machine guns use a clean continuous looping AudioComponent while holding the trigger
 	if (FireSound)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, FireSound, FirstPersonMesh->GetSocketLocation(MuzzleSocketName));
+		if (bFullAuto && AutoFireAudioComp)
+		{
+			if (AutoFireAudioComp->Sound != FireSound)
+			{
+				AutoFireAudioComp->SetSound(FireSound);
+			}
+			if (!AutoFireAudioComp->IsPlaying())
+			{
+				AutoFireAudioComp->Play();
+			}
+		}
+		else
+		{
+			UGameplayStatics::PlaySoundAtLocation(this, FireSound, FirstPersonMesh->GetSocketLocation(MuzzleSocketName));
+		}
 	}
 
 	// play the firing montage

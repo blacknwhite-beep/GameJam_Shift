@@ -1240,6 +1240,11 @@ void AShooterCharacter::SpawnAllGunPackWeapons()
 
 	USoundBase* ClassicPistolFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_Pistol_Classic.SFX_Pistol_Classic"));
 	USoundBase* TacticalPistolFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_Pistol_Tactical.SFX_Pistol_Tactical"));
+	USoundBase* MP5FireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_Auto_MP5.SFX_Auto_MP5"));
+	USoundBase* MP7FireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_Auto_MP7.SFX_Auto_MP7"));
+	USoundBase* M4A1FireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_Auto_M4A1.SFX_Auto_M4A1"));
+	USoundBase* M16FireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_Auto_M16.SFX_Auto_M16"));
+	USoundBase* SCARFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_Auto_SCAR.SFX_Auto_SCAR"));
 	USoundBase* DefaultFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_Fire.S_Pistol_Fire"));
 	USoundBase* ReloadSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_Reload.S_Pistol_Reload"));
 	USoundBase* DryFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_DryFire.S_Pistol_DryFire"));
@@ -1351,13 +1356,16 @@ void AShooterCharacter::SpawnAllGunPackWeapons()
 		}
 
 		USoundBase* ChosenFireSnd = DefaultFireSnd;
-		if (i == 0 && ClassicPistolFireSnd)
+		switch (i)
 		{
-			ChosenFireSnd = ClassicPistolFireSnd;
-		}
-		else if (i == 1 && TacticalPistolFireSnd)
-		{
-			ChosenFireSnd = TacticalPistolFireSnd;
+		case 0: if (ClassicPistolFireSnd)  { ChosenFireSnd = ClassicPistolFireSnd; }  break;
+		case 1: if (TacticalPistolFireSnd) { ChosenFireSnd = TacticalPistolFireSnd; } break;
+		case 2: if (MP5FireSnd)            { ChosenFireSnd = MP5FireSnd; }            break;
+		case 3: if (MP7FireSnd)            { ChosenFireSnd = MP7FireSnd; }            break;
+		case 4: if (M4A1FireSnd)           { ChosenFireSnd = M4A1FireSnd; }           break;
+		case 5: if (M16FireSnd)            { ChosenFireSnd = M16FireSnd; }            break;
+		case 6: if (SCARFireSnd)           { ChosenFireSnd = SCARFireSnd; }           break;
+		default: break;
 		}
 
 		NewWep->ConfigureCustomGunPackArchetype(

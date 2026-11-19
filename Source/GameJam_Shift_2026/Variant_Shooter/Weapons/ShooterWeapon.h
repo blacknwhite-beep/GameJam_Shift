@@ -14,6 +14,7 @@ class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class UStaticMesh;
 class UPointLightComponent;
+class UAudioComponent;
 class UMaterialInstanceDynamic;
 class UAnimMontage;
 class UAnimInstance;
@@ -58,7 +59,14 @@ class GAMEJAM_SHIFT_2026_API AShooterWeapon : public AActor
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UPointLightComponent> MuzzleFlashLight;
 
+	/** Continuous looping audio component used while holding the trigger on full-auto machine guns */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAudioComponent> AutoFireAudioComp;
+
 protected:
+
+	/** Stops the continuous full-auto firing loop cleanly */
+	void StopAutoFireAudio();
 
 	/** Remaining lifetime in seconds of the active muzzle flare */
 	float MuzzleFlashTimeRemaining = 0.0f;
