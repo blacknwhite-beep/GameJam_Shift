@@ -15,6 +15,7 @@
 #include "Farming/FarmPlotBase.h"
 #include "Farming/BarnShopActor.h"
 #include "Kismet/GameplayStatics.h"
+#include "AudioDevice.h"
 #include "Engine/LevelStreamingDynamic.h"
 #include "Misc/PackageName.h"
 #include "EngineUtils.h"
@@ -487,6 +488,13 @@ void UDimensionShiftSubsystem::AddGold(int32 Amount)
 
 bool UDimensionShiftSubsystem::SpendGold(int32 Amount)
 {
+	if (bDeveloperMode)
+	{
+		// Infinite money in Developer Mode: always succeeds without depleting Gold
+		OnGoldChanged.Broadcast(CurrentGold, 0);
+		return true;
+	}
+
 	if (Amount <= 0 || CurrentGold < Amount)
 	{
 		return false;
@@ -500,9 +508,9 @@ bool UDimensionShiftSubsystem::SpendGold(int32 Amount)
 
 bool UDimensionShiftSubsystem::IsWeaponUnlocked(int32 SlotIndex) const
 {
-	if (SlotIndex == 0)
+	if (bDeveloperMode || SlotIndex == 0)
 	{
-		return true; // Slot 0 (M1911 Classic) is always unlocked
+		return true; // Slot 0 (M1911 Classic) is always unlocked; Developer Mode unlocks all 7 weapons
 	}
 	return UnlockedWeaponSlots.Contains(SlotIndex);
 }
@@ -511,4 +519,48 @@ void UDimensionShiftSubsystem::UnlockWeapon(int32 SlotIndex)
 {
 	UnlockedWeaponSlots.Add(SlotIndex);
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Economy: Unlocked weapon slot %d"), SlotIndex);
+}
+
+void UDimensionShiftSubsystem::SetMasterVolume(float NewVolume, UWorld* WorldContext)
+{
+	MasterVolume = FMath::Clamp(NewVolume, 0.0f, 1.0f);
+
+	UWorld* TargetWorld = WorldContext ? WorldContext : GetWorld();
+	if (TargetWorld)
+	{
+		if (FAudioDeviceHandle AudioDevice = TargetWorld->GetAudioDevice())
+		{
+			AudioDevice->SetTransientPrimaryVolume(MasterVolume);
+		}
+	}
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Settings: MasterVolume set to %.2f"), MasterVolume);
+}
+
+void UDimensionShiftSubsystem::SetMouseSensitivity(float NewSensitivity)
+{
+	MouseSensitivity = FMath::Clamp(NewSensitivity, 0.2f, 3.0f);
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Settings: MouseSensitivity set to %.2f"), MouseSensitivity);
+}
+
+void UDimensionShiftSubsystem::SetDeveloperMode(bool bEnabled)
+{
+	bDeveloperMode = bEnabled;
+	if (bDeveloperMode)
+	{
+		CurrentGold = 999999;
+		for (int32 i = 0; i < 7; ++i)
+		{
+			UnlockedWeaponSlots.Add(i);
+		}
+	}
+	else
+	{
+		// Restore normal Gold cap if coming back from infinite dev gold
+		if (CurrentGold >= 900000)
+		{
+			CurrentGold = StartingGold;
+		}
+	}
+	OnGoldChanged.Broadcast(CurrentGold, 0);
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Settings: DeveloperMode %s"), bDeveloperMode ? TEXT("ENABLED") : TEXT("DISABLED"));
 }

@@ -19,6 +19,7 @@
 #include "Components/SkyLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
+#include "Components/Slider.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -183,21 +184,83 @@ void UStartMenuWidget::NativeOnInitialized()
 	if (UVerticalBoxSlot* SubSlot = MenuVBox->AddChildToVerticalBox(SubtitleText))
 	{
 		SubSlot->SetHorizontalAlignment(HAlign_Center);
-		SubSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
+		SubSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 10.0f));
 	}
+
+	// =========================================================================
+	// Tab Bar: [PLAY] vs [SETTINGS]
+	// =========================================================================
+	UHorizontalBox* TabBar = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("StartMenuTabBar"));
+	if (UVerticalBoxSlot* TBSlot = MenuVBox->AddChildToVerticalBox(TabBar))
+	{
+		TBSlot->SetHorizontalAlignment(HAlign_Center);
+		TBSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
+	}
+
+	USizeBox* PlayTabSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("PlayTabSize"));
+	PlayTabSize->SetWidthOverride(200.0f);
+	PlayTabSize->SetHeightOverride(34.0f);
+	if (UHorizontalBoxSlot* PTSlot = TabBar->AddChildToHorizontalBox(PlayTabSize))
+	{
+		PTSlot->SetPadding(FMargin(0.0f, 0.0f, 8.0f, 0.0f));
+	}
+	TabPlayButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("TabPlayButton"));
+	TabPlayButton->SetBackgroundColor(FLinearColor(0.18f, 0.56f, 0.34f, 1.0f));
+	TabPlayButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnTabPlayClicked);
+	PlayTabSize->SetContent(TabPlayButton);
+
+	UTextBlock* PlayTabLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PlayTabLbl"));
+	PlayTabLbl->SetText(FText::FromString(TEXT("PLAY")));
+	PlayTabLbl->SetJustification(ETextJustify::Center);
+	PlayTabLbl->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	{
+		FSlateFontInfo F = PlayTabLbl->GetFont();
+		F.Size = 11;
+		PlayTabLbl->SetFont(F);
+	}
+	TabPlayButton->SetContent(PlayTabLbl);
+
+	USizeBox* SettingsTabSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsTabSize"));
+	SettingsTabSize->SetWidthOverride(200.0f);
+	SettingsTabSize->SetHeightOverride(34.0f);
+	if (UHorizontalBoxSlot* STSlot = TabBar->AddChildToHorizontalBox(SettingsTabSize))
+	{
+		STSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
+	}
+	TabSettingsButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("TabSettingsButton"));
+	TabSettingsButton->SetBackgroundColor(FLinearColor(0.12f, 0.16f, 0.22f, 1.0f));
+	TabSettingsButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnTabSettingsClicked);
+	SettingsTabSize->SetContent(TabSettingsButton);
+
+	UTextBlock* SettingsTabLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SettingsTabLbl"));
+	SettingsTabLbl->SetText(FText::FromString(TEXT("SETTINGS")));
+	SettingsTabLbl->SetJustification(ETextJustify::Center);
+	SettingsTabLbl->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.92f, 0.65f, 1.0f)));
+	{
+		FSlateFontInfo F = SettingsTabLbl->GetFont();
+		F.Size = 11;
+		SettingsTabLbl->SetFont(F);
+	}
+	TabSettingsButton->SetContent(SettingsTabLbl);
+
+	// =========================================================================
+	// TAB 0: PLAY TAB
+	// =========================================================================
+	PlayTabBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PlayTabBox"));
+	MenuVBox->AddChildToVerticalBox(PlayTabBox);
 
 	// Controls Quick-Reference Strip
 	UBorder* ControlsBox = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ControlsBox"));
 	ControlsBox->SetBrushColor(FLinearColor(0.06f, 0.08f, 0.11f, 0.92f));
 	ControlsBox->SetPadding(FMargin(18.0f, 8.0f));
-	if (UVerticalBoxSlot* CSlot = MenuVBox->AddChildToVerticalBox(ControlsBox))
+	if (UVerticalBoxSlot* CSlot = PlayTabBox->AddChildToVerticalBox(ControlsBox))
 	{
 		CSlot->SetHorizontalAlignment(HAlign_Center);
 		CSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 14.0f));
 	}
 
 	UTextBlock* ControlsText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ControlsText"));
-	ControlsText->SetText(FText::FromString(TEXT("[LEFT SHIFT] Teleport Between Farm & Combat   |   [HOLD TAB] 7-Weapon Radial Wheel   |   [I] Tarkov Backpack   |   [F] Flashlight   |   [B] Barn Store")));
+	ControlsText->SetText(FText::FromString(TEXT("[LEFT SHIFT] Teleport   |   [HOLD TAB] 7-Weapon Wheel   |   [I] Backpack   |   [F] Flashlight   |   [B] Barn Store   |   [P] Settings")));
 	ControlsText->SetJustification(ETextJustify::Center);
 	ControlsText->SetColorAndOpacity(FSlateColor(FLinearColor(0.84f, 0.88f, 0.94f, 1.0f)));
 	{
@@ -207,9 +270,9 @@ void UStartMenuWidget::NativeOnInitialized()
 	}
 	ControlsBox->SetContent(ControlsText);
 
-	// Action Buttons Row: [ENTER THE SHIFT (START)] + [QUIT GAME]
+	// Action Buttons Row: [START GAME] + [QUIT]
 	UHorizontalBox* BtnRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("MenuBtnRow"));
-	if (UVerticalBoxSlot* BRowSlot = MenuVBox->AddChildToVerticalBox(BtnRow))
+	if (UVerticalBoxSlot* BRowSlot = PlayTabBox->AddChildToVerticalBox(BtnRow))
 	{
 		BRowSlot->SetHorizontalAlignment(HAlign_Center);
 	}
@@ -227,16 +290,16 @@ void UStartMenuWidget::NativeOnInitialized()
 	StartButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnStartGameClicked);
 	StartSize->SetContent(StartButton);
 
-	UTextBlock* StartLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StartGameLabel"));
-	StartLabel->SetText(FText::FromString(TEXT("START GAME  [ENTER / SPACE]")));
-	StartLabel->SetJustification(ETextJustify::Center);
-	StartLabel->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.98f, 0.82f, 1.0f)));
+	StartButtonLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StartGameLabel"));
+	StartButtonLabel->SetText(FText::FromString(TEXT("START GAME  [ENTER / SPACE]")));
+	StartButtonLabel->SetJustification(ETextJustify::Center);
+	StartButtonLabel->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.98f, 0.82f, 1.0f)));
 	{
-		FSlateFontInfo F = StartLabel->GetFont();
+		FSlateFontInfo F = StartButtonLabel->GetFont();
 		F.Size = 12;
-		StartLabel->SetFont(F);
+		StartButtonLabel->SetFont(F);
 	}
-	StartButton->SetContent(StartLabel);
+	StartButton->SetContent(StartButtonLabel);
 
 	USizeBox* QuitSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("QuitBtnSize"));
 	QuitSize->SetWidthOverride(150.0f);
@@ -258,6 +321,217 @@ void UStartMenuWidget::NativeOnInitialized()
 		QuitLabel->SetFont(F);
 	}
 	QuitButton->SetContent(QuitLabel);
+
+	// =========================================================================
+	// TAB 1: SETTINGS TAB (Master Volume, Mouse Sensitivity, Developer Mode)
+	// =========================================================================
+	SettingsTabBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SettingsTabBox"));
+	SettingsTabBox->SetVisibility(ESlateVisibility::Collapsed);
+	MenuVBox->AddChildToVerticalBox(SettingsTabBox);
+
+	// Helper container width so sliders align cleanly
+	USizeBox* SettingsWidthBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsWidthBox"));
+	SettingsWidthBox->SetWidthOverride(560.0f);
+	if (UVerticalBoxSlot* SWSlot = SettingsTabBox->AddChildToVerticalBox(SettingsWidthBox))
+	{
+		SWSlot->SetHorizontalAlignment(HAlign_Center);
+	}
+
+	UVerticalBox* SettingsInner = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SettingsInner"));
+	SettingsWidthBox->SetContent(SettingsInner);
+
+	// Row 1: Master Volume Slider
+	UBorder* VolRowBg = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("VolRowBg"));
+	VolRowBg->SetBrushColor(FLinearColor(0.06f, 0.08f, 0.11f, 0.94f));
+	VolRowBg->SetPadding(FMargin(16.0f, 10.0f));
+	if (UVerticalBoxSlot* VSlot = SettingsInner->AddChildToVerticalBox(VolRowBg))
+	{
+		VSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 8.0f));
+	}
+
+	UHorizontalBox* VolRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("VolRow"));
+	VolRowBg->SetContent(VolRow);
+
+	UTextBlock* VolLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("VolLabel"));
+	VolLabel->SetText(FText::FromString(TEXT("MASTER VOLUME")));
+	VolLabel->SetColorAndOpacity(FSlateColor(FLinearColor(0.90f, 0.94f, 0.98f, 1.0f)));
+	{
+		FSlateFontInfo F = VolLabel->GetFont();
+		F.Size = 11;
+		VolLabel->SetFont(F);
+	}
+	if (UHorizontalBoxSlot* VLSlot = VolRow->AddChildToHorizontalBox(VolLabel))
+	{
+		VLSlot->SetVerticalAlignment(VAlign_Center);
+		VLSlot->SetPadding(FMargin(0.0f, 0.0f, 16.0f, 0.0f));
+	}
+
+	VolumeSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("VolumeSlider"));
+	VolumeSlider->SetMinValue(0.0f);
+	VolumeSlider->SetMaxValue(1.0f);
+	VolumeSlider->SetStepSize(0.05f);
+	VolumeSlider->SetValue(1.0f);
+	VolumeSlider->OnValueChanged.AddUniqueDynamic(this, &UStartMenuWidget::OnVolumeSliderChanged);
+	if (UHorizontalBoxSlot* VSSlot = VolRow->AddChildToHorizontalBox(VolumeSlider))
+	{
+		VSSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		VSSlot->SetVerticalAlignment(VAlign_Center);
+	}
+
+	VolumeValueText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("VolumeValueText"));
+	VolumeValueText->SetText(FText::FromString(TEXT("100%")));
+	VolumeValueText->SetColorAndOpacity(FSlateColor(FLinearColor(0.45f, 0.98f, 0.62f, 1.0f)));
+	{
+		FSlateFontInfo F = VolumeValueText->GetFont();
+		F.Size = 11;
+		VolumeValueText->SetFont(F);
+	}
+	if (UHorizontalBoxSlot* VVSlot = VolRow->AddChildToHorizontalBox(VolumeValueText))
+	{
+		VVSlot->SetVerticalAlignment(VAlign_Center);
+		VVSlot->SetPadding(FMargin(14.0f, 0.0f, 0.0f, 0.0f));
+	}
+
+	// Row 2: Mouse Sensitivity Slider
+	UBorder* SensRowBg = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("SensRowBg"));
+	SensRowBg->SetBrushColor(FLinearColor(0.06f, 0.08f, 0.11f, 0.94f));
+	SensRowBg->SetPadding(FMargin(16.0f, 10.0f));
+	if (UVerticalBoxSlot* VSlot = SettingsInner->AddChildToVerticalBox(SensRowBg))
+	{
+		VSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 8.0f));
+	}
+
+	UHorizontalBox* SensRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("SensRow"));
+	SensRowBg->SetContent(SensRow);
+
+	UTextBlock* SensLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SensLabel"));
+	SensLabel->SetText(FText::FromString(TEXT("MOUSE SENSITIVITY")));
+	SensLabel->SetColorAndOpacity(FSlateColor(FLinearColor(0.90f, 0.94f, 0.98f, 1.0f)));
+	{
+		FSlateFontInfo F = SensLabel->GetFont();
+		F.Size = 11;
+		SensLabel->SetFont(F);
+	}
+	if (UHorizontalBoxSlot* SLSlot = SensRow->AddChildToHorizontalBox(SensLabel))
+	{
+		SLSlot->SetVerticalAlignment(VAlign_Center);
+		SLSlot->SetPadding(FMargin(0.0f, 0.0f, 16.0f, 0.0f));
+	}
+
+	SensitivitySlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("SensitivitySlider"));
+	SensitivitySlider->SetMinValue(0.2f);
+	SensitivitySlider->SetMaxValue(3.0f);
+	SensitivitySlider->SetStepSize(0.1f);
+	SensitivitySlider->SetValue(1.0f);
+	SensitivitySlider->OnValueChanged.AddUniqueDynamic(this, &UStartMenuWidget::OnSensitivitySliderChanged);
+	if (UHorizontalBoxSlot* SSSlot = SensRow->AddChildToHorizontalBox(SensitivitySlider))
+	{
+		SSSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		SSSlot->SetVerticalAlignment(VAlign_Center);
+	}
+
+	SensitivityValueText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SensitivityValueText"));
+	SensitivityValueText->SetText(FText::FromString(TEXT("1.0x")));
+	SensitivityValueText->SetColorAndOpacity(FSlateColor(FLinearColor(0.45f, 0.92f, 1.0f, 1.0f)));
+	{
+		FSlateFontInfo F = SensitivityValueText->GetFont();
+		F.Size = 11;
+		SensitivityValueText->SetFont(F);
+	}
+	if (UHorizontalBoxSlot* SVSlot = SensRow->AddChildToHorizontalBox(SensitivityValueText))
+	{
+		SVSlot->SetVerticalAlignment(VAlign_Center);
+		SVSlot->SetPadding(FMargin(14.0f, 0.0f, 0.0f, 0.0f));
+	}
+
+	// Row 3: Developer Mode Toggle (Unlocks All 7 Weapons + Infinite Money)
+	UBorder* DevRowBg = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("DevRowBg"));
+	DevRowBg->SetBrushColor(FLinearColor(0.08f, 0.07f, 0.11f, 0.95f));
+	DevRowBg->SetPadding(FMargin(16.0f, 10.0f));
+	if (UVerticalBoxSlot* VSlot = SettingsInner->AddChildToVerticalBox(DevRowBg))
+	{
+		VSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
+	}
+
+	UHorizontalBox* DevRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("DevRow"));
+	DevRowBg->SetContent(DevRow);
+
+	UVerticalBox* DevInfoCol = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("DevInfoCol"));
+	if (UHorizontalBoxSlot* DISlot = DevRow->AddChildToHorizontalBox(DevInfoCol))
+	{
+		DISlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		DISlot->SetVerticalAlignment(VAlign_Center);
+	}
+
+	UTextBlock* DevTitle = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DevTitle"));
+	DevTitle->SetText(FText::FromString(TEXT("DEVELOPER MODE")));
+	DevTitle->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.85f, 0.35f, 1.0f)));
+	{
+		FSlateFontInfo F = DevTitle->GetFont();
+		F.Size = 11;
+		DevTitle->SetFont(F);
+	}
+	DevInfoCol->AddChildToVerticalBox(DevTitle);
+
+	UTextBlock* DevDesc = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DevDesc"));
+	DevDesc->SetText(FText::FromString(TEXT("Unlocks all 7 weapons in the Radial Wheel & grants Infinite Gold")));
+	DevDesc->SetColorAndOpacity(FSlateColor(FLinearColor(0.72f, 0.78f, 0.86f, 1.0f)));
+	{
+		FSlateFontInfo F = DevDesc->GetFont();
+		F.Size = 9;
+		DevDesc->SetFont(F);
+	}
+	DevInfoCol->AddChildToVerticalBox(DevDesc);
+
+	USizeBox* DevBtnSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("DevBtnSize"));
+	DevBtnSize->SetWidthOverride(130.0f);
+	DevBtnSize->SetHeightOverride(36.0f);
+	if (UHorizontalBoxSlot* DBSlot = DevRow->AddChildToHorizontalBox(DevBtnSize))
+	{
+		DBSlot->SetVerticalAlignment(VAlign_Center);
+		DBSlot->SetPadding(FMargin(14.0f, 0.0f, 0.0f, 0.0f));
+	}
+
+	DevModeToggleButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("DevModeToggleButton"));
+	DevModeToggleButton->SetBackgroundColor(FLinearColor(0.32f, 0.14f, 0.14f, 1.0f));
+	DevModeToggleButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnToggleDeveloperModeClicked);
+	DevBtnSize->SetContent(DevModeToggleButton);
+
+	DevModeToggleLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DevModeToggleLabel"));
+	DevModeToggleLabel->SetText(FText::FromString(TEXT("OFF")));
+	DevModeToggleLabel->SetJustification(ETextJustify::Center);
+	DevModeToggleLabel->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	{
+		FSlateFontInfo F = DevModeToggleLabel->GetFont();
+		F.Size = 11;
+		DevModeToggleLabel->SetFont(F);
+	}
+	DevModeToggleButton->SetContent(DevModeToggleLabel);
+
+	// Bottom Resume / Play button inside Settings Tab so you can jump straight back into the game
+	USizeBox* SettingsResumeSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsResumeSize"));
+	SettingsResumeSize->SetWidthOverride(240.0f);
+	SettingsResumeSize->SetHeightOverride(40.0f);
+	if (UVerticalBoxSlot* SRSlot = SettingsInner->AddChildToVerticalBox(SettingsResumeSize))
+	{
+		SRSlot->SetHorizontalAlignment(HAlign_Center);
+	}
+
+	UButton* SettingsResumeBtn = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("SettingsResumeBtn"));
+	SettingsResumeBtn->SetBackgroundColor(FLinearColor(0.16f, 0.64f, 0.32f, 1.0f));
+	SettingsResumeBtn->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnStartGameClicked);
+	SettingsResumeSize->SetContent(SettingsResumeBtn);
+
+	UTextBlock* SettingsResumeLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SettingsResumeLbl"));
+	SettingsResumeLbl->SetText(FText::FromString(TEXT("APPLY & PLAY")));
+	SettingsResumeLbl->SetJustification(ETextJustify::Center);
+	SettingsResumeLbl->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.98f, 0.82f, 1.0f)));
+	{
+		FSlateFontInfo F = SettingsResumeLbl->GetFont();
+		F.Size = 11;
+		SettingsResumeLbl->SetFont(F);
+	}
+	SettingsResumeBtn->SetContent(SettingsResumeLbl);
 }
 
 void UStartMenuWidget::NativeConstruct()
@@ -265,6 +539,19 @@ void UStartMenuWidget::NativeConstruct()
 	Super::NativeConstruct();
 
 	SpawnSplitScreenCameras();
+	RefreshSettingsUI();
+
+	if (StartButtonLabel && GetWorld() && GetWorld()->GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GetWorld()->GetGameInstance()->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			StartButtonLabel->SetText(FText::FromString(
+				Sub->bHasDismissedStartMenu
+				? TEXT("RESUME GAME  [ESC / P]")
+				: TEXT("START GAME  [ENTER / SPACE]")
+			));
+		}
+	}
 
 	if (APlayerController* PC = GetOwningPlayer())
 	{
@@ -606,12 +893,142 @@ void UStartMenuWidget::DestroySplitScreenCameras()
 FReply UStartMenuWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 {
 	const FKey Key = InKeyEvent.GetKey();
-	if (Key == EKeys::Enter || Key == EKeys::SpaceBar)
+	if (Key == EKeys::Enter || Key == EKeys::SpaceBar || Key == EKeys::Escape || Key == EKeys::P)
 	{
 		OnStartGameClicked();
 		return FReply::Handled();
 	}
 	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+
+void UStartMenuWidget::OnTabPlayClicked()
+{
+	SetActiveTab(0);
+}
+
+void UStartMenuWidget::OnTabSettingsClicked()
+{
+	SetActiveTab(1);
+}
+
+void UStartMenuWidget::OpenOnSettingsTab()
+{
+	SetActiveTab(1);
+}
+
+void UStartMenuWidget::SetActiveTab(int32 TabIndex)
+{
+	ActiveTabIndex = TabIndex;
+	const bool bPlayActive = (TabIndex == 0);
+
+	if (PlayTabBox)
+	{
+		PlayTabBox->SetVisibility(bPlayActive ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+	if (SettingsTabBox)
+	{
+		SettingsTabBox->SetVisibility(bPlayActive ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+	}
+	if (TabPlayButton)
+	{
+		TabPlayButton->SetBackgroundColor(bPlayActive ? FLinearColor(0.18f, 0.56f, 0.34f, 1.0f) : FLinearColor(0.12f, 0.16f, 0.22f, 1.0f));
+	}
+	if (TabSettingsButton)
+	{
+		TabSettingsButton->SetBackgroundColor(!bPlayActive ? FLinearColor(0.20f, 0.46f, 0.68f, 1.0f) : FLinearColor(0.12f, 0.16f, 0.22f, 1.0f));
+	}
+
+	RefreshSettingsUI();
+}
+
+void UStartMenuWidget::RefreshSettingsUI()
+{
+	UWorld* World = GetWorld();
+	UDimensionShiftSubsystem* Sub = (World && World->GetGameInstance())
+		? World->GetGameInstance()->GetSubsystem<UDimensionShiftSubsystem>()
+		: nullptr;
+	if (!Sub)
+	{
+		return;
+	}
+
+	if (VolumeSlider)
+	{
+		VolumeSlider->SetValue(Sub->MasterVolume);
+	}
+	if (VolumeValueText)
+	{
+		VolumeValueText->SetText(FText::FromString(FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Sub->MasterVolume * 100.0f))));
+	}
+	if (SensitivitySlider)
+	{
+		SensitivitySlider->SetValue(Sub->MouseSensitivity);
+	}
+	if (SensitivityValueText)
+	{
+		SensitivityValueText->SetText(FText::FromString(FString::Printf(TEXT("%.1fx"), Sub->MouseSensitivity)));
+	}
+	if (DevModeToggleButton && DevModeToggleLabel)
+	{
+		const bool bDev = Sub->IsDeveloperModeEnabled();
+		DevModeToggleButton->SetBackgroundColor(
+			bDev
+			? FLinearColor(0.18f, 0.62f, 0.30f, 1.0f)
+			: FLinearColor(0.32f, 0.14f, 0.14f, 1.0f)
+		);
+		DevModeToggleLabel->SetText(FText::FromString(bDev ? TEXT("ON (ACTIVE)") : TEXT("OFF")));
+	}
+}
+
+void UStartMenuWidget::OnVolumeSliderChanged(float Value)
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UGameInstance* GI = World->GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				Sub->SetMasterVolume(Value, World);
+			}
+		}
+	}
+	if (VolumeValueText)
+	{
+		VolumeValueText->SetText(FText::FromString(FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Value * 100.0f))));
+	}
+}
+
+void UStartMenuWidget::OnSensitivitySliderChanged(float Value)
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UGameInstance* GI = World->GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				Sub->SetMouseSensitivity(Value);
+			}
+		}
+	}
+	if (SensitivityValueText)
+	{
+		SensitivityValueText->SetText(FText::FromString(FString::Printf(TEXT("%.1fx"), Value)));
+	}
+}
+
+void UStartMenuWidget::OnToggleDeveloperModeClicked()
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UGameInstance* GI = World->GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				Sub->SetDeveloperMode(!Sub->IsDeveloperModeEnabled());
+				RefreshSettingsUI();
+			}
+		}
+	}
 }
 
 void UStartMenuWidget::OnStartGameClicked()

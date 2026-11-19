@@ -114,6 +114,45 @@ void AShooterPlayerController::SetupInputComponent()
 				}
 			}
 		}
+
+		// Allow opening the Settings Menu at any time in-game by pressing [P]
+		if (InputComponent)
+		{
+			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AShooterPlayerController::ToggleSettingsMenu);
+		}
+	}
+}
+
+void AShooterPlayerController::ToggleSettingsMenu()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	if (StartMenuWidget && StartMenuWidget->IsInViewport())
+	{
+		StartMenuWidget->OnStartGameClicked();
+		return;
+	}
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Sub->bIsStartMenuActive = true;
+		}
+	}
+
+	if (!StartMenuWidget)
+	{
+		StartMenuWidget = CreateWidget<UStartMenuWidget>(this, UStartMenuWidget::StaticClass());
+	}
+
+	if (StartMenuWidget)
+	{
+		StartMenuWidget->AddToViewport(100);
+		StartMenuWidget->OpenOnSettingsTab();
 	}
 }
 

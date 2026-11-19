@@ -331,7 +331,15 @@ void AShooterCharacter::DoAim(float Yaw, float Pitch)
 	// only route inputs if the character is not dead
 	if (!IsDead())
 	{
-		Super::DoAim(Yaw, Pitch);
+		float Sens = 1.0f;
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				Sens = Sub->MouseSensitivity;
+			}
+		}
+		Super::DoAim(Yaw * Sens, Pitch * Sens);
 	}
 }
 

@@ -144,6 +144,37 @@ public:
 	/** True once the player has dismissed the Start Menu in this session. */
 	bool bHasDismissedStartMenu = false;
 
+	// -------------------------------------------------------------------------
+	// User Settings & Developer Mode
+	// -------------------------------------------------------------------------
+
+	/** Master audio volume multiplier (0.0 to 1.0) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float MasterVolume = 1.0f;
+
+	/** Mouse look sensitivity multiplier (0.2 to 3.0, default 1.0) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings", meta = (ClampMin = "0.2", ClampMax = "3.0"))
+	float MouseSensitivity = 1.0f;
+
+	/** Developer Mode: unlocks all 7 weapons and grants infinite Gold */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Settings")
+	bool bDeveloperMode = false;
+
+	/** Sets master volume (0.0..1.0) and applies it to the audio device */
+	UFUNCTION(BlueprintCallable, Category = "Settings")
+	void SetMasterVolume(float NewVolume, UWorld* WorldContext = nullptr);
+
+	/** Sets mouse look sensitivity multiplier (0.2..3.0) */
+	UFUNCTION(BlueprintCallable, Category = "Settings")
+	void SetMouseSensitivity(float NewSensitivity);
+
+	/** Toggles Developer Mode (all 7 weapons unlocked + infinite gold) */
+	UFUNCTION(BlueprintCallable, Category = "Settings")
+	void SetDeveloperMode(bool bEnabled);
+
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	bool IsDeveloperModeEnabled() const { return bDeveloperMode; }
+
 private:
 	/** Set of unlocked weapon slot indices (Slot 0 = M1911 Classic is unlocked by default). */
 	TSet<int32> UnlockedWeaponSlots;

@@ -10,6 +10,8 @@ class UImage;
 class UButton;
 class UTextBlock;
 class UBorder;
+class USlider;
+class UVerticalBox;
 class UTextureRenderTarget2D;
 class AActor;
 
@@ -17,7 +19,10 @@ class AActor;
  * Horizontally Split Dual-Dimension Start Menu Widget for GameJam_Shift_2026.
  * - Top Half: Live 3D view of the sunlit Farm Valley (Barn, Silo, Crops, Pond, Farm Plots) at Z = -20,000.
  * - Bottom Half: Live 3D view of the Zombie Quarantine Compound (Zombies roaming in Lvl_Combat) at Z = 0.
- * - Center Rift Divider: Glowing dimensional rift bar with game title, controls summary, and START / QUIT buttons.
+ * - Center Rift Divider: Glowing dimensional rift bar with PLAY and SETTINGS tabs:
+ *     - PLAY Tab: Game title, controls summary, START GAME / QUIT buttons.
+ *     - SETTINGS Tab: Master Volume slider, Mouse Sensitivity slider, and Developer Mode toggle
+ *       (unlocks all 7 weapons + infinite Gold).
  */
 UCLASS()
 class GAMEJAM_SHIFT_2026_API UStartMenuWidget : public UUserWidget
@@ -39,7 +44,32 @@ public:
 	UFUNCTION()
 	void OnQuitGameClicked();
 
+	/** Switches center card to the PLAY tab */
+	UFUNCTION()
+	void OnTabPlayClicked();
+
+	/** Switches center card to the SETTINGS tab */
+	UFUNCTION()
+	void OnTabSettingsClicked();
+
+	/** Master Volume slider handler (0.0 -> 1.0) */
+	UFUNCTION()
+	void OnVolumeSliderChanged(float Value);
+
+	/** Mouse Sensitivity slider handler (0.2 -> 3.0) */
+	UFUNCTION()
+	void OnSensitivitySliderChanged(float Value);
+
+	/** Toggles Developer Mode (all 7 weapons unlocked + infinite Gold) */
+	UFUNCTION()
+	void OnToggleDeveloperModeClicked();
+
+	/** Opens the menu directly on the Settings tab (used when pressing [P] or [O] in-game) */
+	void OpenOnSettingsTab();
+
 protected:
+	void SetActiveTab(int32 TabIndex);
+	void RefreshSettingsUI();
 	void SpawnSplitScreenCameras();
 	void DestroySplitScreenCameras();
 	void EnsurePreviewCropsInFarm();
@@ -63,11 +93,45 @@ protected:
 	TObjectPtr<AActor> CombatCaptureActor;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UButton> TabPlayButton;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> TabSettingsButton;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UVerticalBox> PlayTabBox;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UVerticalBox> SettingsTabBox;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UButton> StartButton;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> StartButtonLabel;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UButton> QuitButton;
 
+	UPROPERTY(Transient)
+	TObjectPtr<USlider> VolumeSlider;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> VolumeValueText;
+
+	UPROPERTY(Transient)
+	TObjectPtr<USlider> SensitivitySlider;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> SensitivityValueText;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> DevModeToggleButton;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> DevModeToggleLabel;
+
 	float MenuElapsedSeconds = 0.0f;
 	bool bSeededPreviewCrops = false;
+	int32 ActiveTabIndex = 0;
 };

@@ -401,7 +401,11 @@ void UBarnShopWidget::RefreshGoldText()
 	}
 	if (UDimensionShiftSubsystem* Sub = GetWorld()->GetGameInstance()->GetSubsystem<UDimensionShiftSubsystem>())
 	{
-		GoldHeaderText->SetText(FText::FromString(FString::Printf(TEXT("GOLD: %d"), Sub->GetGold())));
+		GoldHeaderText->SetText(FText::FromString(
+			Sub->IsDeveloperModeEnabled()
+			? TEXT("GOLD: INF (DEV)")
+			: FString::Printf(TEXT("GOLD: %d"), Sub->GetGold())
+		));
 	}
 }
 

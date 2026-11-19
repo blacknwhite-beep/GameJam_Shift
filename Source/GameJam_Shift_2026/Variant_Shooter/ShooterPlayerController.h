@@ -97,4 +97,8 @@ public:
 	/** Returns the combat bullet counter UI widget */
 	UFUNCTION(BlueprintPure, Category="Shooter|UI")
 	UShooterBulletCounterUI* GetBulletCounterUI() const { return BulletCounterUI; }
+
+	/** Toggles the Start / Settings Menu overlay in-game (bound to P key) */
+	UFUNCTION(BlueprintCallable, Category="Shooter|UI")
+	void ToggleSettingsMenu();
 };

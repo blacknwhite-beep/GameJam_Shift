@@ -75,7 +75,11 @@ void UGoldHUDWidget::NativeConstruct()
 				Subsystem->OnGoldChanged.AddUniqueDynamic(this, &UGoldHUDWidget::HandleGoldChanged);
 				if (GoldAmountText)
 				{
-					GoldAmountText->SetText(FText::FromString(FString::Printf(TEXT("GOLD: %d"), Subsystem->GetGold())));
+					GoldAmountText->SetText(FText::FromString(
+						Subsystem->IsDeveloperModeEnabled()
+						? TEXT("GOLD: INF (DEV)")
+						: FString::Printf(TEXT("GOLD: %d"), Subsystem->GetGold())
+					));
 				}
 			}
 		}
@@ -117,9 +121,25 @@ void UGoldHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 
 void UGoldHUDWidget::HandleGoldChanged(int32 NewGold, int32 Delta)
 {
+	bool bDevMode = false;
+	if (UWorld* World = GetWorld())
+	{
+		if (UGameInstance* GI = World->GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				bDevMode = Sub->IsDeveloperModeEnabled();
+			}
+		}
+	}
+
 	if (GoldAmountText)
 	{
-		GoldAmountText->SetText(FText::FromString(FString::Printf(TEXT("GOLD: %d"), NewGold)));
+		GoldAmountText->SetText(FText::FromString(
+			bDevMode
+			? TEXT("GOLD: INF (DEV)")
+			: FString::Printf(TEXT("GOLD: %d"), NewGold)
+		));
 	}
 
 	if (GoldDeltaText && Delta != 0)
