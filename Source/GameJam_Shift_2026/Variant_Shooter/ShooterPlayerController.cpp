@@ -220,6 +220,7 @@ void AShooterPlayerController::OnPawnDamaged(float LifePercent)
 	if (IsValid(BulletCounterUI))
 	{
 		BulletCounterUI->BP_Damaged(LifePercent);
+		BulletCounterUI->TriggerBloodDamageEffect(LifePercent);
 	}
 }
 

@@ -387,7 +387,11 @@ void AZombieEnemy::PerformMeleeAttack(AActor* TargetActor)
 		ActionAnimEndTime = GetWorld()->GetTimeSeconds() + FMath::Min(1.05f, AttackAnim->GetPlayLength() / 1.4f);
 	}
 
-	if (AttackGroanSound)
+	if (USoundBase* BiteHitSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_ZombieBiteHit.SFX_ZombieBiteHit")))
+	{
+		UGameplayStatics::PlaySound2D(this, BiteHitSnd, 1.0f, FMath::FRandRange(0.95f, 1.06f));
+	}
+	else if (AttackGroanSound)
 	{
 		UGameplayStatics::PlaySoundAtLocation(this, AttackGroanSound, GetActorLocation());
 	}
