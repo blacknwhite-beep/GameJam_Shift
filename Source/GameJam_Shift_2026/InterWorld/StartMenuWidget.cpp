@@ -188,63 +188,7 @@ void UStartMenuWidget::NativeOnInitialized()
 	}
 
 	// =========================================================================
-	// Tab Bar: [PLAY] vs [SETTINGS]
-	// =========================================================================
-	UHorizontalBox* TabBar = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("StartMenuTabBar"));
-	if (UVerticalBoxSlot* TBSlot = MenuVBox->AddChildToVerticalBox(TabBar))
-	{
-		TBSlot->SetHorizontalAlignment(HAlign_Center);
-		TBSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
-	}
-
-	USizeBox* PlayTabSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("PlayTabSize"));
-	PlayTabSize->SetWidthOverride(200.0f);
-	PlayTabSize->SetHeightOverride(34.0f);
-	if (UHorizontalBoxSlot* PTSlot = TabBar->AddChildToHorizontalBox(PlayTabSize))
-	{
-		PTSlot->SetPadding(FMargin(0.0f, 0.0f, 8.0f, 0.0f));
-	}
-	TabPlayButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("TabPlayButton"));
-	TabPlayButton->SetBackgroundColor(FLinearColor(0.18f, 0.56f, 0.34f, 1.0f));
-	TabPlayButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnTabPlayClicked);
-	PlayTabSize->SetContent(TabPlayButton);
-
-	UTextBlock* PlayTabLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PlayTabLbl"));
-	PlayTabLbl->SetText(FText::FromString(TEXT("PLAY")));
-	PlayTabLbl->SetJustification(ETextJustify::Center);
-	PlayTabLbl->SetColorAndOpacity(FSlateColor(FLinearColor::White));
-	{
-		FSlateFontInfo F = PlayTabLbl->GetFont();
-		F.Size = 11;
-		PlayTabLbl->SetFont(F);
-	}
-	TabPlayButton->SetContent(PlayTabLbl);
-
-	USizeBox* SettingsTabSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsTabSize"));
-	SettingsTabSize->SetWidthOverride(200.0f);
-	SettingsTabSize->SetHeightOverride(34.0f);
-	if (UHorizontalBoxSlot* STSlot = TabBar->AddChildToHorizontalBox(SettingsTabSize))
-	{
-		STSlot->SetPadding(FMargin(8.0f, 0.0f, 0.0f, 0.0f));
-	}
-	TabSettingsButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("TabSettingsButton"));
-	TabSettingsButton->SetBackgroundColor(FLinearColor(0.12f, 0.16f, 0.22f, 1.0f));
-	TabSettingsButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnTabSettingsClicked);
-	SettingsTabSize->SetContent(TabSettingsButton);
-
-	UTextBlock* SettingsTabLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SettingsTabLbl"));
-	SettingsTabLbl->SetText(FText::FromString(TEXT("SETTINGS")));
-	SettingsTabLbl->SetJustification(ETextJustify::Center);
-	SettingsTabLbl->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.92f, 0.65f, 1.0f)));
-	{
-		FSlateFontInfo F = SettingsTabLbl->GetFont();
-		F.Size = 11;
-		SettingsTabLbl->SetFont(F);
-	}
-	TabSettingsButton->SetContent(SettingsTabLbl);
-
-	// =========================================================================
-	// TAB 0: PLAY TAB
+	// TAB 0: MAIN MENU (Controls + START GAME / SETTINGS / QUIT)
 	// =========================================================================
 	PlayTabBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("PlayTabBox"));
 	MenuVBox->AddChildToVerticalBox(PlayTabBox);
@@ -270,7 +214,7 @@ void UStartMenuWidget::NativeOnInitialized()
 	}
 	ControlsBox->SetContent(ControlsText);
 
-	// Action Buttons Row: [START GAME] + [QUIT]
+	// Action Buttons Row: [START GAME] + [SETTINGS] + [QUIT]
 	UHorizontalBox* BtnRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("MenuBtnRow"));
 	if (UVerticalBoxSlot* BRowSlot = PlayTabBox->AddChildToVerticalBox(BtnRow))
 	{
@@ -278,11 +222,11 @@ void UStartMenuWidget::NativeOnInitialized()
 	}
 
 	USizeBox* StartSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StartBtnSize"));
-	StartSize->SetWidthOverride(260.0f);
+	StartSize->SetWidthOverride(240.0f);
 	StartSize->SetHeightOverride(46.0f);
 	if (UHorizontalBoxSlot* SSlot = BtnRow->AddChildToHorizontalBox(StartSize))
 	{
-		SSlot->SetPadding(FMargin(0.0f, 0.0f, 14.0f, 0.0f));
+		SSlot->SetPadding(FMargin(0.0f, 0.0f, 12.0f, 0.0f));
 	}
 
 	StartButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("StartGameButton"));
@@ -291,7 +235,7 @@ void UStartMenuWidget::NativeOnInitialized()
 	StartSize->SetContent(StartButton);
 
 	StartButtonLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StartGameLabel"));
-	StartButtonLabel->SetText(FText::FromString(TEXT("START GAME  [ENTER / SPACE]")));
+	StartButtonLabel->SetText(FText::FromString(TEXT("START GAME  [ENTER]")));
 	StartButtonLabel->SetJustification(ETextJustify::Center);
 	StartButtonLabel->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.98f, 0.82f, 1.0f)));
 	{
@@ -301,8 +245,32 @@ void UStartMenuWidget::NativeOnInitialized()
 	}
 	StartButton->SetContent(StartButtonLabel);
 
+	USizeBox* SettingsBtnSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsTabSize"));
+	SettingsBtnSize->SetWidthOverride(155.0f);
+	SettingsBtnSize->SetHeightOverride(46.0f);
+	if (UHorizontalBoxSlot* STSlot = BtnRow->AddChildToHorizontalBox(SettingsBtnSize))
+	{
+		STSlot->SetPadding(FMargin(0.0f, 0.0f, 12.0f, 0.0f));
+	}
+
+	TabSettingsButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("TabSettingsButton"));
+	TabSettingsButton->SetBackgroundColor(FLinearColor(0.18f, 0.38f, 0.58f, 1.0f));
+	TabSettingsButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnTabSettingsClicked);
+	SettingsBtnSize->SetContent(TabSettingsButton);
+
+	UTextBlock* SettingsTabLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SettingsTabLbl"));
+	SettingsTabLbl->SetText(FText::FromString(TEXT("SETTINGS")));
+	SettingsTabLbl->SetJustification(ETextJustify::Center);
+	SettingsTabLbl->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.94f, 0.72f, 1.0f)));
+	{
+		FSlateFontInfo F = SettingsTabLbl->GetFont();
+		F.Size = 12;
+		SettingsTabLbl->SetFont(F);
+	}
+	TabSettingsButton->SetContent(SettingsTabLbl);
+
 	USizeBox* QuitSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("QuitBtnSize"));
-	QuitSize->SetWidthOverride(150.0f);
+	QuitSize->SetWidthOverride(130.0f);
 	QuitSize->SetHeightOverride(46.0f);
 	BtnRow->AddChildToHorizontalBox(QuitSize);
 
@@ -508,14 +476,41 @@ void UStartMenuWidget::NativeOnInitialized()
 	}
 	DevModeToggleButton->SetContent(DevModeToggleLabel);
 
-	// Bottom Resume / Play button inside Settings Tab so you can jump straight back into the game
-	USizeBox* SettingsResumeSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsResumeSize"));
-	SettingsResumeSize->SetWidthOverride(240.0f);
-	SettingsResumeSize->SetHeightOverride(40.0f);
-	if (UVerticalBoxSlot* SRSlot = SettingsInner->AddChildToVerticalBox(SettingsResumeSize))
+	// Bottom Row inside Settings Tab: [BACK] + [APPLY & PLAY]
+	UHorizontalBox* SettingsBtnRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("SettingsBtnRow"));
+	if (UVerticalBoxSlot* SRSlot = SettingsInner->AddChildToVerticalBox(SettingsBtnRow))
 	{
 		SRSlot->SetHorizontalAlignment(HAlign_Center);
 	}
+
+	USizeBox* SettingsBackSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsBackSize"));
+	SettingsBackSize->SetWidthOverride(150.0f);
+	SettingsBackSize->SetHeightOverride(40.0f);
+	if (UHorizontalBoxSlot* SBSlot = SettingsBtnRow->AddChildToHorizontalBox(SettingsBackSize))
+	{
+		SBSlot->SetPadding(FMargin(0.0f, 0.0f, 12.0f, 0.0f));
+	}
+
+	TabPlayButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("SettingsBackBtn"));
+	TabPlayButton->SetBackgroundColor(FLinearColor(0.20f, 0.24f, 0.30f, 1.0f));
+	TabPlayButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnTabPlayClicked);
+	SettingsBackSize->SetContent(TabPlayButton);
+
+	UTextBlock* SettingsBackLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SettingsBackLbl"));
+	SettingsBackLbl->SetText(FText::FromString(TEXT("BACK")));
+	SettingsBackLbl->SetJustification(ETextJustify::Center);
+	SettingsBackLbl->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	{
+		FSlateFontInfo F = SettingsBackLbl->GetFont();
+		F.Size = 11;
+		SettingsBackLbl->SetFont(F);
+	}
+	TabPlayButton->SetContent(SettingsBackLbl);
+
+	USizeBox* SettingsResumeSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsResumeSize"));
+	SettingsResumeSize->SetWidthOverride(220.0f);
+	SettingsResumeSize->SetHeightOverride(40.0f);
+	SettingsBtnRow->AddChildToHorizontalBox(SettingsResumeSize);
 
 	UButton* SettingsResumeBtn = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("SettingsResumeBtn"));
 	SettingsResumeBtn->SetBackgroundColor(FLinearColor(0.16f, 0.64f, 0.32f, 1.0f));
@@ -928,14 +923,6 @@ void UStartMenuWidget::SetActiveTab(int32 TabIndex)
 	if (SettingsTabBox)
 	{
 		SettingsTabBox->SetVisibility(bPlayActive ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
-	}
-	if (TabPlayButton)
-	{
-		TabPlayButton->SetBackgroundColor(bPlayActive ? FLinearColor(0.18f, 0.56f, 0.34f, 1.0f) : FLinearColor(0.12f, 0.16f, 0.22f, 1.0f));
-	}
-	if (TabSettingsButton)
-	{
-		TabSettingsButton->SetBackgroundColor(!bPlayActive ? FLinearColor(0.20f, 0.46f, 0.68f, 1.0f) : FLinearColor(0.12f, 0.16f, 0.22f, 1.0f));
 	}
 
 	RefreshSettingsUI();
