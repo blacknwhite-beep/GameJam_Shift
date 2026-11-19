@@ -9,6 +9,7 @@
 class UAnimSequence;
 class USoundBase;
 class UMaterialInterface;
+class UMaterialInstanceDynamic;
 
 /**
  * Melee-only Zombie enemy inheriting from AShooterNPC so it integrates with
@@ -107,6 +108,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Zombie|Economy", meta = (ClampMin = "0"))
 	int32 KillGoldReward = 100;
 
+	/**
+	 * Applies a Tom Looman-style 3D sphere-mask wound on the zombie skin shader at the exact bullet impact location,
+	 * plus realistic arterial blood droplet burst and floor blood splatter!
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Zombie|Combat")
+	void ApplyBulletWound(const FVector& WorldHitLocation, const FVector& ShotDirection);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
@@ -144,4 +152,11 @@ private:
 	float RoamTargetSetTime = 0.0f;
 	FVector LastKnownPlayerLocation = FVector::ZeroVector;
 	FVector RoamTarget = FVector::ZeroVector;
+
+	/** Dynamic material instances for each skeletal mesh slot so per-zombie 3D wound spheres are rendered */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> ZombieWoundMIDs;
+
+	/** Next wound slot index (cycles 0..3 across the 4 shader wound channels HitPosition0..3) */
+	int32 NextWoundSlotIndex = 0;
 };

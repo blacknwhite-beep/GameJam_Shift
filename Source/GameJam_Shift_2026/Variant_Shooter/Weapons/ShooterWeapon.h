@@ -13,6 +13,8 @@ class AShooterProjectile;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class UStaticMesh;
+class UPointLightComponent;
+class UMaterialInstanceDynamic;
 class UAnimMontage;
 class UAnimInstance;
 class USoundBase;
@@ -44,7 +46,29 @@ class GAMEJAM_SHIFT_2026_API AShooterWeapon : public AActor
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UStaticMeshComponent> ThirdPersonGunMesh;
 
+	/** First person muzzle flash star-burst flare plane1 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> MuzzleFlashCoreMesh;
+
+	/** First person muzzle flash star-burst flare plane2 (crossed at 90 deg) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> MuzzleFlashCrossMesh;
+
+	/** Dynamic point light burst at the gun barrel tip on each shot */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UPointLightComponent> MuzzleFlashLight;
+
 protected:
+
+	/** Remaining lifetime in seconds of the active muzzle flare */
+	float MuzzleFlashTimeRemaining = 0.0f;
+
+	/** Local barrel tip offset along the gun's forward (+Y) and up (+Z) axis in FirstPersonMesh space */
+	FVector MuzzleTipRelativeLocation = FVector(0.0f, 32.0f, 6.5f);
+
+	/** Emissive dynamic material instance for the muzzle flare */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> MuzzleFlashMID;
 
 	/** Display name of this weapon (e.g. "M4A1 CARBINE") */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Weapon")

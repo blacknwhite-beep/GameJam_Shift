@@ -2,7 +2,9 @@
 
 
 #include "ShooterProjectile.h"
+#include "Variant_Shooter/AI/ZombieEnemy.h"
 #include "Components/SphereComponent.h"
+#include "Components/MeshComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "GameFramework/Character.h"
 #include "Kismet/GameplayStatics.h"
@@ -20,7 +22,7 @@ AShooterProjectile::AShooterProjectile()
 	// create the collision component and assign it as the root
 	RootComponent = CollisionComponent = CreateDefaultSubobject<USphereComponent>(TEXT("Collision Component"));
 
-	CollisionComponent->SetSphereRadius(16.0f);
+	CollisionComponent->SetSphereRadius(6.0f);
 	CollisionComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	CollisionComponent->SetCollisionResponseToAllChannels(ECR_Block);
 	CollisionComponent->CanCharacterStepUpOn = ECanBeCharacterBase::ECB_No;
@@ -28,9 +30,12 @@ AShooterProjectile::AShooterProjectile()
 	// create the projectile movement component. No need to attach it because it's not a Scene Component
 	ProjectileMovement = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("Projectile Movement"));
 
-	ProjectileMovement->InitialSpeed = 3000.0f;
-	ProjectileMovement->MaxSpeed = 3000.0f;
-	ProjectileMovement->bShouldBounce = true;
+	ProjectileMovement->InitialSpeed = 12000.0f;
+	ProjectileMovement->MaxSpeed = 12000.0f;
+	ProjectileMovement->bShouldBounce = false;
+	ProjectileMovement->ProjectileGravityScale = 0.0f;
+
+	DeferredDestructionTime = 0.0f;
 
 	// set the default damage type
 	HitDamageType = UDamageType::StaticClass();
@@ -42,6 +47,33 @@ void AShooterProjectile::BeginPlay()
 	
 	// ignore the pawn that shot this projectile
 	CollisionComponent->IgnoreActorWhenMoving(GetInstigator(), true);
+
+	// Hide any test rubber/foam bullet mesh components added by BP_ShooterProjectile_Bullet
+	// and disable bounce/gravity so rounds behave like clean high-velocity bullets
+	if (!bExplodeOnHit)
+	{
+		if (ProjectileMovement)
+		{
+			ProjectileMovement->bShouldBounce = false;
+			ProjectileMovement->ProjectileGravityScale = 0.0f;
+			ProjectileMovement->InitialSpeed = 12000.0f;
+			ProjectileMovement->MaxSpeed = 12000.0f;
+			ProjectileMovement->Velocity = GetActorForwardVector() * 12000.0f;
+		}
+		DeferredDestructionTime = 0.0f;
+
+		TArray<UMeshComponent*> MeshComps;
+		GetComponents<UMeshComponent>(MeshComps);
+		for (UMeshComponent* MC : MeshComps)
+		{
+			if (MC)
+			{
+				MC->SetVisibility(false, true);
+				MC->SetHiddenInGame(true, true);
+				MC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			}
+		}
+	}
 }
 
 void AShooterProjectile::EndPlay(EEndPlayReason::Type EndPlayReason)
@@ -147,13 +179,20 @@ void AShooterProjectile::ProcessHit(AActor* HitActor, UPrimitiveComponent* HitCo
 		// ignore the owner of this projectile
 		if (HitCharacter != GetOwner() || bDamageOwner)
 		{
+			// If we hit a Zombie, render Tom Looman 3D sphere-mask character wound & arterial blood splatter at the exact impact point
+			if (AZombieEnemy* HitZombie = Cast<AZombieEnemy>(HitCharacter))
+			{
+				HitZombie->ApplyBulletWound(HitLocation, HitDirection);
+			}
+
 			// apply damage to the character
-			UGameplayStatics::ApplyDamage(HitCharacter, HitDamage, GetInstigator()->GetController(), this, HitDamageType);
+			AController* InstigatorController = GetInstigator() ? GetInstigator()->GetController() : nullptr;
+			UGameplayStatics::ApplyDamage(HitCharacter, HitDamage, InstigatorController, this, HitDamageType);
 		}
 	}
 
 	// have we hit a physics object?
-	if (HitComp->IsSimulatingPhysics())
+	if (HitComp && HitComp->IsSimulatingPhysics())
 	{
 		// give some physics impulse to the object
 		HitComp->AddImpulseAtLocation(HitDirection * PhysicsForce, HitLocation);

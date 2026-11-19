@@ -14,7 +14,10 @@
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Character.h"
 
@@ -54,6 +57,33 @@ AShooterWeapon::AShooterWeapon()
 	ThirdPersonGunMesh->SetCollisionProfileName(FName("NoCollision"));
 	ThirdPersonGunMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::WorldSpaceRepresentation);
 	ThirdPersonGunMesh->bOwnerNoSee = true;
+
+	// Create 3D crossed-starburst muzzle flash flare components & dynamic muzzle flash point light
+	MuzzleFlashCoreMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MuzzleFlashCoreMesh"));
+	MuzzleFlashCoreMesh->SetupAttachment(FirstPersonMesh);
+	MuzzleFlashCoreMesh->SetCollisionProfileName(FName("NoCollision"));
+	MuzzleFlashCoreMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::FirstPerson);
+	MuzzleFlashCoreMesh->bOnlyOwnerSee = true;
+	MuzzleFlashCoreMesh->SetCastShadow(false);
+	MuzzleFlashCoreMesh->SetVisibility(false);
+
+	MuzzleFlashCrossMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MuzzleFlashCrossMesh"));
+	MuzzleFlashCrossMesh->SetupAttachment(MuzzleFlashCoreMesh);
+	MuzzleFlashCrossMesh->SetCollisionProfileName(FName("NoCollision"));
+	MuzzleFlashCrossMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::FirstPerson);
+	MuzzleFlashCrossMesh->bOnlyOwnerSee = true;
+	MuzzleFlashCrossMesh->SetCastShadow(false);
+	MuzzleFlashCrossMesh->SetRelativeRotation(FRotator(0.0f, 0.0f, 90.0f));
+	MuzzleFlashCrossMesh->SetVisibility(false);
+
+	MuzzleFlashLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("MuzzleFlashLight"));
+	MuzzleFlashLight->SetupAttachment(FirstPersonMesh);
+	MuzzleFlashLight->SetIntensityUnits(ELightUnits::Candelas);
+	MuzzleFlashLight->SetIntensity(140.0f);
+	MuzzleFlashLight->SetAttenuationRadius(680.0f);
+	MuzzleFlashLight->SetLightColor(FColor(255, 195, 95));
+	MuzzleFlashLight->SetCastShadows(false);
+	MuzzleFlashLight->SetVisibility(false);
 }
 
 void AShooterWeapon::BeginPlay()
@@ -87,6 +117,30 @@ void AShooterWeapon::BeginPlay()
 
 	// attach the meshes to the owner
 	WeaponOwner->AttachWeaponMeshes(this);
+
+	// Initialize 3D starburst muzzle flash mesh & emissive material
+	if (UStaticMesh* ConeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cone.Cone")))
+	{
+		if (MuzzleFlashCoreMesh)
+		{
+			MuzzleFlashCoreMesh->SetStaticMesh(ConeMesh);
+		}
+		if (MuzzleFlashCrossMesh)
+		{
+			MuzzleFlashCrossMesh->SetStaticMesh(ConeMesh);
+		}
+	}
+	if (UMaterialInterface* BaseGlowMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase")))
+	{
+		MuzzleFlashMID = UMaterialInstanceDynamic::Create(BaseGlowMat, this);
+		if (MuzzleFlashMID)
+		{
+			MuzzleFlashMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(1.0f, 0.85f, 0.35f, 1.0f));
+			MuzzleFlashMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(28.0f, 16.0f, 3.5f, 1.0f));
+			if (MuzzleFlashCoreMesh) { MuzzleFlashCoreMesh->SetMaterial(0, MuzzleFlashMID); }
+			if (MuzzleFlashCrossMesh) { MuzzleFlashCrossMesh->SetMaterial(0, MuzzleFlashMID); }
+		}
+	}
 }
 
 void AShooterWeapon::Tick(float DeltaTime)
@@ -157,6 +211,32 @@ void AShooterWeapon::Tick(float DeltaTime)
 	FirstPersonGunMesh->SetRelativeLocation(BaseGunRelativeLocation + CurrentRecoilOffset + ReloadOffset + EquipOffset);
 	const FQuat FinalQuat = FQuat(BaseGunRelativeRotation) * FQuat(CurrentRecoilRot + ReloadRot + EquipRot);
 	FirstPersonGunMesh->SetRelativeRotation(FinalQuat.Rotator());
+
+	// 4. Update & decay the 3D muzzle flash flare at the barrel tip
+	if (MuzzleFlashTimeRemaining > 0.0f)
+	{
+		MuzzleFlashTimeRemaining = FMath::Max(0.0f, MuzzleFlashTimeRemaining - DeltaTime);
+		const float FlashAlpha = FMath::Clamp(MuzzleFlashTimeRemaining / 0.055f, 0.0f, 1.0f);
+		const FVector LiveMuzzlePos = MuzzleTipRelativeLocation + CurrentRecoilOffset;
+
+		if (MuzzleFlashCoreMesh)
+		{
+			MuzzleFlashCoreMesh->SetRelativeLocation(LiveMuzzlePos);
+			MuzzleFlashCoreMesh->SetRelativeScale3D(FVector(0.045f * FlashAlpha, 0.14f * FlashAlpha, 0.045f * FlashAlpha));
+		}
+		if (MuzzleFlashLight)
+		{
+			MuzzleFlashLight->SetRelativeLocation(LiveMuzzlePos);
+			MuzzleFlashLight->SetIntensity(165.0f * FlashAlpha);
+		}
+
+		if (MuzzleFlashTimeRemaining <= 0.0f)
+		{
+			if (MuzzleFlashCoreMesh)  { MuzzleFlashCoreMesh->SetVisibility(false, true); }
+			if (MuzzleFlashCrossMesh) { MuzzleFlashCrossMesh->SetVisibility(false, false); }
+			if (MuzzleFlashLight)     { MuzzleFlashLight->SetVisibility(false); }
+		}
+	}
 }
 
 void AShooterWeapon::EndPlay(EEndPlayReason::Type EndPlayReason)
@@ -215,6 +295,10 @@ void AShooterWeapon::DeactivateWeapon()
 
 	// hide the weapon
 	SetActorHiddenInGame(true);
+	MuzzleFlashTimeRemaining = 0.0f;
+	if (MuzzleFlashCoreMesh)  { MuzzleFlashCoreMesh->SetVisibility(false, true); }
+	if (MuzzleFlashCrossMesh) { MuzzleFlashCrossMesh->SetVisibility(false, false); }
+	if (MuzzleFlashLight)     { MuzzleFlashLight->SetVisibility(false); }
 
 	// notify the owner
 	WeaponOwner->OnWeaponDeactivated(this);
@@ -494,6 +578,28 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	CurrentRecoilOffset += FVector(0.0f, -3.2f, 0.9f);
 	CurrentRecoilRot += FRotator(8.5f, FMath::FRandRange(-1.8f, 1.8f), -5.0f);
 
+	// Trigger bright 3D muzzle flash flare & dynamic point light at the barrel tip
+	MuzzleFlashTimeRemaining = 0.055f;
+	const FVector LiveMuzzlePos = MuzzleTipRelativeLocation + CurrentRecoilOffset;
+	const float RandomRoll = FMath::FRandRange(0.0f, 360.0f);
+	if (MuzzleFlashCoreMesh)
+	{
+		MuzzleFlashCoreMesh->SetRelativeLocation(LiveMuzzlePos);
+		MuzzleFlashCoreMesh->SetRelativeRotation(FRotator(0.0f, 0.0f, RandomRoll));
+		MuzzleFlashCoreMesh->SetRelativeScale3D(FVector(0.048f, 0.145f, 0.048f));
+		MuzzleFlashCoreMesh->SetVisibility(true, true);
+	}
+	if (MuzzleFlashCrossMesh)
+	{
+		MuzzleFlashCrossMesh->SetVisibility(true, false);
+	}
+	if (MuzzleFlashLight)
+	{
+		MuzzleFlashLight->SetRelativeLocation(LiveMuzzlePos);
+		MuzzleFlashLight->SetIntensity(165.0f);
+		MuzzleFlashLight->SetVisibility(true);
+	}
+
 	// consume bullets
 	--CurrentBullets;
 
@@ -724,6 +830,12 @@ void AShooterWeapon::ConfigureCustomGunPackArchetype(
 
 	if (UStaticMesh* LoadedGunMesh = LoadObject<UStaticMesh>(nullptr, *InStaticMeshPath))
 	{
+		// Compute exact barrel tip offset in FirstPersonMesh space from the mesh bounding box
+		const FBoxSphereBounds GunBounds = LoadedGunMesh->GetBounds();
+		const float HalfLenY = GunBounds.BoxExtent.Y * InUniformScale;
+		const float BarrelZ = (GunBounds.BoxExtent.Z * 0.42f) * InUniformScale;
+		MuzzleTipRelativeLocation = InMeshOffset + FVector(0.0f, HalfLenY + 2.5f, BarrelZ);
+
 		if (FirstPersonGunMesh)
 		{
 			FirstPersonGunMesh->SetStaticMesh(LoadedGunMesh);

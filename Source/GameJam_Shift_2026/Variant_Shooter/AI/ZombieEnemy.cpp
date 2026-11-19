@@ -7,9 +7,13 @@
 #include "Animation/AnimSequence.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/ProjectileMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Sound/SoundBase.h"
 #include "Engine/World.h"
 #include "NavigationSystem.h"
@@ -72,12 +76,17 @@ void AZombieEnemy::BeginPlay()
 		SkelMesh->SetRelativeRotation(FRotator(0.0f, MeshYawOffset, 0.0f));
 		SkelMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 
-		if (ZombieSkinMaterial)
+		ZombieWoundMIDs.Reset();
+		const int32 NumMats = SkelMesh->GetNumMaterials();
+		for (int32 i = 0; i < NumMats; ++i)
 		{
-			const int32 NumMats = SkelMesh->GetNumMaterials();
-			for (int32 i = 0; i < NumMats; ++i)
+			UMaterialInterface* BaseMat = ZombieSkinMaterial ? ZombieSkinMaterial.Get() : SkelMesh->GetMaterial(i);
+			if (BaseMat)
 			{
-				SkelMesh->SetMaterial(i, ZombieSkinMaterial);
+				if (UMaterialInstanceDynamic* WoundMID = SkelMesh->CreateDynamicMaterialInstance(i, BaseMat))
+				{
+					ZombieWoundMIDs.Add(WoundMID);
+				}
 			}
 		}
 	}
@@ -429,4 +438,124 @@ void AZombieEnemy::Die()
 	}
 
 	Super::Die();
+}
+
+void AZombieEnemy::ApplyBulletWound(const FVector& WorldHitLocation, const FVector& ShotDirection)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// 1. Tom Looman 3D Character Wound Shader Mask:
+	// Store the hit offset relative to ActorLocation (matches WorldPosition - ActorPositionWS in M_ZombieMaster)
+	const FVector LocalHitOffset = WorldHitLocation - GetActorLocation();
+	const float WoundRadius = FMath::FRandRange(22.0f, 30.0f);
+	const int32 SlotIdx = NextWoundSlotIndex % 4;
+	NextWoundSlotIndex = (NextWoundSlotIndex + 1) % 4;
+
+	const FName PosParamName(*FString::Printf(TEXT("HitPosition%d"), SlotIdx));
+	const FName ActiveParamName(*FString::Printf(TEXT("HitActive%d"), SlotIdx));
+	const FLinearColor WoundVec(LocalHitOffset.X, LocalHitOffset.Y, LocalHitOffset.Z, WoundRadius);
+
+	for (UMaterialInstanceDynamic* MID : ZombieWoundMIDs)
+	{
+		if (MID)
+		{
+			MID->SetVectorParameterValue(PosParamName, WoundVec);
+			MID->SetScalarParameterValue(ActiveParamName, 1.0f);
+		}
+	}
+
+	// 2. Spawn Realistic Arterial Blood Droplet Burst & Ground Blood Splatter Pool
+	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	UStaticMesh* CylinderMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
+
+	if (SphereMesh && BaseMat)
+	{
+		const FVector OutwardSprayDir = (-ShotDirection).GetSafeNormal();
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		// Spawn 7 flying blood droplets with gravity arc
+		for (int32 i = 0; i < 7; ++i)
+		{
+			AActor* DropActor = World->SpawnActor<AActor>(AActor::StaticClass(), WorldHitLocation, FRotator::ZeroRotator, Params);
+			if (!DropActor)
+			{
+				continue;
+			}
+
+			UStaticMeshComponent* DropMesh = NewObject<UStaticMeshComponent>(DropActor, TEXT("BloodDropletMesh"));
+			DropMesh->SetStaticMesh(SphereMesh);
+			DropMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			DropMesh->SetCastShadow(false);
+			const float DropScale = FMath::FRandRange(0.024f, 0.048f);
+			DropMesh->SetWorldScale3D(FVector(DropScale, DropScale, DropScale * 1.35f));
+
+			if (UMaterialInstanceDynamic* BloodMID = UMaterialInstanceDynamic::Create(BaseMat, DropActor))
+			{
+				BloodMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.26f, 0.006f, 0.006f, 1.0f));
+				BloodMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.08f, 0.002f, 0.002f, 1.0f));
+				DropMesh->SetMaterial(0, BloodMID);
+			}
+
+			DropMesh->RegisterComponent();
+			DropActor->SetRootComponent(DropMesh);
+
+			UProjectileMovementComponent* DropMove = NewObject<UProjectileMovementComponent>(DropActor, TEXT("BloodDropMove"));
+			const FVector RandSpread = FVector(
+				FMath::FRandRange(-0.55f, 0.55f),
+				FMath::FRandRange(-0.55f, 0.55f),
+				FMath::FRandRange(0.20f, 0.75f)
+			);
+			const FVector LaunchDir = (OutwardSprayDir * 0.65f + RandSpread).GetSafeNormal();
+			const float Speed = FMath::FRandRange(180.0f, 420.0f);
+			DropMove->Velocity = LaunchDir * Speed;
+			DropMove->InitialSpeed = Speed;
+			DropMove->MaxSpeed = 800.0f;
+			DropMove->ProjectileGravityScale = 1.15f;
+			DropMove->RegisterComponent();
+
+			DropActor->SetLifeSpan(FMath::FRandRange(0.38f, 0.65f));
+		}
+	}
+
+	// 3. Trace straight down to place a glossy crimson blood splatter pool on the floor under the bleeding zombie
+	if (CylinderMesh && BaseMat)
+	{
+		FHitResult FloorHit;
+		FCollisionQueryParams FloorParams(SCENE_QUERY_STAT(BloodFloorTrace), false);
+		FloorParams.AddIgnoredActor(this);
+		const FVector TraceStart = WorldHitLocation + FVector(FMath::FRandRange(-25.0f, 25.0f), FMath::FRandRange(-25.0f, 25.0f), 10.0f);
+		if (World->LineTraceSingleByChannel(FloorHit, TraceStart, TraceStart - FVector(0.0f, 0.0f, 320.0f), ECC_WorldStatic, FloorParams))
+		{
+			FActorSpawnParameters PoolParams;
+			PoolParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			AActor* PoolActor = World->SpawnActor<AActor>(AActor::StaticClass(), FloorHit.ImpactPoint + FVector(0.0f, 0.0f, 0.6f), FRotator(0.0f, FMath::FRandRange(0.0f, 360.0f), 0.0f), PoolParams);
+			if (PoolActor)
+			{
+				UStaticMeshComponent* PoolMesh = NewObject<UStaticMeshComponent>(PoolActor, TEXT("BloodPoolMesh"));
+				PoolMesh->SetStaticMesh(CylinderMesh);
+				PoolMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				PoolMesh->SetCastShadow(false);
+				const float PoolRadiusX = FMath::FRandRange(0.22f, 0.44f);
+				const float PoolRadiusY = FMath::FRandRange(0.22f, 0.44f);
+				PoolMesh->SetWorldScale3D(FVector(PoolRadiusX, PoolRadiusY, 0.008f));
+
+				if (UMaterialInstanceDynamic* PoolMID = UMaterialInstanceDynamic::Create(BaseMat, PoolActor))
+				{
+					PoolMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.20f, 0.005f, 0.005f, 1.0f));
+					PoolMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.04f, 0.001f, 0.001f, 1.0f));
+					PoolMesh->SetMaterial(0, PoolMID);
+				}
+
+				PoolMesh->RegisterComponent();
+				PoolActor->SetRootComponent(PoolMesh);
+				PoolActor->SetLifeSpan(14.0f);
+			}
+		}
+	}
 }
