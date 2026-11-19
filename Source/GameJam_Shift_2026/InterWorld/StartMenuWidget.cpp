@@ -15,7 +15,13 @@
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
 #include "Components/PointLightComponent.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
@@ -355,30 +361,75 @@ void UStartMenuWidget::SpawnSplitScreenCameras()
 			Cap->bCaptureEveryFrame = true;
 			Cap->bCaptureOnMovement = true;
 			Cap->bAlwaysPersistRenderingState = true;
+			// CRITICAL: Disable Atmosphere and ExponentialHeightFog on the Farm SceneCapture!
+			// The Combat level's ExponentialHeightFog is at Z=0 with density 0.065, which becomes 100% opaque grey at Z=-20,000!
+			Cap->ShowFlags.SetAtmosphere(false);
+			Cap->ShowFlags.SetFog(false);
+			Cap->ShowFlags.SetVolumetricFog(false);
+			Cap->ShowFlags.SetCloud(false);
 			Cap->PostProcessBlendWeight = 1.0f;
+			Cap->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
+			Cap->PostProcessSettings.AutoExposureMinBrightness = 1.0f;
+			Cap->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
+			Cap->PostProcessSettings.AutoExposureMaxBrightness = 1.0f;
 			Cap->PostProcessSettings.bOverride_AutoExposureBias = true;
-			Cap->PostProcessSettings.AutoExposureBias = 1.35f;
+			Cap->PostProcessSettings.AutoExposureBias = 0.65f;
 			Cap->PostProcessSettings.bOverride_ColorSaturation = true;
-			Cap->PostProcessSettings.ColorSaturation = FVector4(1.15f, 1.15f, 1.10f, 1.0f);
+			Cap->PostProcessSettings.ColorSaturation = FVector4(1.18f, 1.18f, 1.12f, 1.0f);
 			Cap->RegisterComponent();
 
-			// Dedicated warm golden sun-fill point lights over the Farm Field & Barn (only visible at Z = -20,000)
-			const FVector LightOffsets[3] = {
-				FVector(-200.0f, -600.0f, 950.0f),   // Over central crop field
-				FVector(-1150.0f, -2600.0f, 1100.0f), // Over Red Barn & Silo
-				FVector(450.0f, -1500.0f, 850.0f)     // Warm fill over pathways & trees
+			// Dedicated warm golden sun-fill point lights over the Farm Field, Barn, Silo, Pond & Trees (at Z = -20,000)
+			const FVector LightOffsets[5] = {
+				FVector(650.0f, 0.0f, 900.0f),        // Directly over the 4x4 Farm Crop Plots (X=325..1075, Y=-375..375)
+				FVector(-700.0f, -2700.0f, 1100.0f),  // Over the Red Barn & Barn Shop entrance
+				FVector(350.0f, -3200.0f, 1200.0f),   // Over the Silo & Hay Bales
+				FVector(0.0f, -1300.0f, 1000.0f),     // Mid-valley pathway between Field and Barn
+				FVector(-1600.0f, 800.0f, 1100.0f)    // West trees & pond approach
 			};
-			for (int32 i = 0; i < 3; ++i)
+			for (int32 i = 0; i < 5; ++i)
 			{
 				UPointLightComponent* WarmLight = NewObject<UPointLightComponent>(FarmCaptureActor, *FString::Printf(TEXT("MenuFarmFillLight_%d"), i));
 				WarmLight->SetupAttachment(Root);
-				WarmLight->SetWorldLocation(FVector(0.0f, 0.0f, -20000.0f) + LightOffsets[i]);
 				WarmLight->SetIntensityUnits(ELightUnits::Candelas);
-				WarmLight->SetIntensity(850.0f);
-				WarmLight->SetAttenuationRadius(6500.0f);
-				WarmLight->SetLightColor(FColor(255, 222, 165));
+				WarmLight->SetIntensity(3200.0f);
+				WarmLight->SetAttenuationRadius(9500.0f);
+				WarmLight->SetLightColor(FColor(255, 224, 170));
 				WarmLight->SetCastShadows(false);
 				WarmLight->RegisterComponent();
+				WarmLight->SetWorldLocation(FVector(0.0f, 0.0f, -20000.0f) + LightOffsets[i]);
+			}
+
+			// Add a warm blue sky-dome fill light high above the Farm valley so grass and hills are brightly lit
+			UPointLightComponent* SkyDomeFill = NewObject<UPointLightComponent>(FarmCaptureActor, TEXT("MenuFarmSkyDomeFill"));
+			SkyDomeFill->SetupAttachment(Root);
+			SkyDomeFill->SetIntensityUnits(ELightUnits::Candelas);
+			SkyDomeFill->SetIntensity(6500.0f);
+			SkyDomeFill->SetAttenuationRadius(16000.0f);
+			SkyDomeFill->SetLightColor(FColor(195, 225, 255));
+			SkyDomeFill->SetCastShadows(false);
+			SkyDomeFill->RegisterComponent();
+			SkyDomeFill->SetWorldLocation(FVector(0.0f, -1000.0f, -17200.0f));
+
+			// Add a distant sky backdrop plane behind the Barn & Hills at Z = -20,000 so with Atmosphere disabled the sky above the hills is warm golden-blue
+			if (UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
+			{
+				UStaticMeshComponent* SkyBackdrop = NewObject<UStaticMeshComponent>(FarmCaptureActor, TEXT("MenuFarmSkyBackdrop"));
+				SkyBackdrop->SetupAttachment(Root);
+				SkyBackdrop->SetStaticMesh(CubeMesh);
+				SkyBackdrop->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+				SkyBackdrop->SetCastShadow(false);
+				if (UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase")))
+				{
+					if (UMaterialInstanceDynamic* SkyMID = UMaterialInstanceDynamic::Create(BaseMat, FarmCaptureActor))
+					{
+						SkyMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.32f, 0.58f, 0.88f, 1.0f));
+						SkyMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.28f, 0.50f, 0.78f, 1.0f));
+						SkyBackdrop->SetMaterial(0, SkyMID);
+					}
+				}
+				SkyBackdrop->RegisterComponent();
+				SkyBackdrop->SetWorldLocationAndRotation(FVector(-1200.0f, -8500.0f, -17500.0f), FRotator(0.0f, 15.0f, 0.0f));
+				SkyBackdrop->SetWorldScale3D(FVector(240.0f, 1.0f, 80.0f));
 			}
 		}
 	}
@@ -494,6 +545,33 @@ void UStartMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 		);
 		const FVector TargetLook(-220.0f, -1350.0f, -19820.0f);
 		FarmCaptureActor->SetActorLocationAndRotation(CamPos, UKismetMathLibrary::FindLookAtRotation(CamPos, TargetLook));
+
+		// Re-anchor fill lights in world space above the Farm Valley so they don't drift with the panning camera
+		const FVector LightOffsets[5] = {
+			FVector(650.0f, 0.0f, 900.0f),
+			FVector(-700.0f, -2700.0f, 1100.0f),
+			FVector(350.0f, -3200.0f, 1200.0f),
+			FVector(0.0f, -1300.0f, 1000.0f),
+			FVector(-1600.0f, 800.0f, 1100.0f)
+		};
+		TArray<UPointLightComponent*> Lights;
+		FarmCaptureActor->GetComponents<UPointLightComponent>(Lights);
+		for (int32 i = 0; i < Lights.Num(); ++i)
+		{
+			if (i < 5)
+			{
+				Lights[i]->SetWorldLocation(FVector(0.0f, 0.0f, -20000.0f) + LightOffsets[i]);
+			}
+			else
+			{
+				Lights[i]->SetWorldLocation(FVector(0.0f, -1000.0f, -17200.0f));
+			}
+		}
+
+		if (UStaticMeshComponent* SkyBackdrop = FarmCaptureActor->FindComponentByClass<UStaticMeshComponent>())
+		{
+			SkyBackdrop->SetWorldLocationAndRotation(FVector(-1200.0f, -8500.0f, -17500.0f), FRotator(0.0f, 15.0f, 0.0f));
+		}
 	}
 
 	// 2. Orbit the Bottom Half Combat Camera around the Zombie Quarantine Compound while zombies roam below
