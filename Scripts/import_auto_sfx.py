@@ -20,8 +20,8 @@ for wav_name in ("SFX_Auto_MP5", "SFX_Auto_MP7", "SFX_Auto_M4A1", "SFX_Auto_M16"
 
     snd = unreal.load_asset(f"{AUDIO_DEST}/{wav_name}")
     if snd:
-        snd.set_editor_property("looping", True)
+        snd.set_editor_property("looping", False)
         eal.save_loaded_asset(snd)
-        unreal.log_warning(f"[AUTO_SFX] Imported {AUDIO_DEST}/{wav_name} (looping=True, duration={snd.get_editor_property('duration'):.2f}s)")
+        unreal.log_warning(f"[AUTO_SFX] Imported {AUDIO_DEST}/{wav_name} (looping=False, duration={snd.get_editor_property('duration'):.3f}s)")
     else:
         unreal.log_error(f"[AUTO_SFX] Failed to import {wav_name}")

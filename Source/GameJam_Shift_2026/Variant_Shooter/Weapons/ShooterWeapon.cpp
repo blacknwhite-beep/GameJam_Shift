@@ -588,25 +588,17 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 
 	AShooterProjectile* Projectile = GetWorld()->SpawnActor<AShooterProjectile>(ProjectileClass, ProjectileTransform, SpawnParams);
 
-	// play the firing sound at the muzzle
-	// Full-auto machine guns use a clean continuous looping AudioComponent while holding the trigger
+	// Play a crisp, per-shot gunshot transient synced 1:1 with every single bullet leaving the barrel
 	if (FireSound)
 	{
-		if (bFullAuto && AutoFireAudioComp)
-		{
-			if (AutoFireAudioComp->Sound != FireSound)
-			{
-				AutoFireAudioComp->SetSound(FireSound);
-			}
-			if (!AutoFireAudioComp->IsPlaying())
-			{
-				AutoFireAudioComp->Play();
-			}
-		}
-		else
-		{
-			UGameplayStatics::PlaySoundAtLocation(this, FireSound, FirstPersonMesh->GetSocketLocation(MuzzleSocketName));
-		}
+		const float PitchJitter = bFullAuto ? FMath::FRandRange(0.96f, 1.04f) : FMath::FRandRange(0.98f, 1.02f);
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			FireSound,
+			FirstPersonMesh ? FirstPersonMesh->GetSocketLocation(MuzzleSocketName) : GetActorLocation(),
+			1.0f,
+			PitchJitter
+		);
 	}
 
 	// play the firing montage
