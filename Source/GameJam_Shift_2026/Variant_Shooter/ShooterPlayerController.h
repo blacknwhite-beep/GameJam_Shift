@@ -62,6 +62,10 @@ protected:
 	UPROPERTY()
 	TObjectPtr<class UGoldHUDWidget> GoldHUDWidget;
 
+	/** Horizontally split Dual-Dimension Start Menu overlay widget */
+	UPROPERTY()
+	TObjectPtr<class UStartMenuWidget> StartMenuWidget;
+
 protected:
 
 	/** Gameplay Initialization */

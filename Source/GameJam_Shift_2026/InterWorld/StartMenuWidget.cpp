@@ -1,0 +1,572 @@
+// Copyright GameJam Shift 2026. All Rights Reserved.
+
+#include "InterWorld/StartMenuWidget.h"
+#include "DimensionShiftSubsystem.h"
+#include "Farming/FarmPlotBase.h"
+#include "ShooterPlayerController.h"
+#include "Blueprint/WidgetTree.h"
+#include "Components/Border.h"
+#include "Components/Button.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/Image.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
+#include "Components/PointLightComponent.h"
+#include "Components/SceneCaptureComponent2D.h"
+#include "Components/SizeBox.h"
+#include "Components/TextBlock.h"
+#include "Components/VerticalBox.h"
+#include "Components/VerticalBoxSlot.h"
+#include "Engine/GameInstance.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetMathLibrary.h"
+#include "Kismet/KismetSystemLibrary.h"
+
+void UStartMenuWidget::NativeOnInitialized()
+{
+	Super::NativeOnInitialized();
+	SetIsFocusable(true);
+
+	if (!WidgetTree)
+	{
+		WidgetTree = NewObject<UWidgetTree>(this, TEXT("WidgetTree"));
+	}
+	if (WidgetTree->RootWidget)
+	{
+		return;
+	}
+
+	UCanvasPanel* RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("StartMenuRoot"));
+	WidgetTree->RootWidget = RootCanvas;
+
+	// =========================================================================
+	// 1. TOP HALF (0.0 -> 0.50 Y): Live Sunlit Farm Dimension Preview
+	// =========================================================================
+	TopFarmViewImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("TopFarmViewImage"));
+	if (UCanvasPanelSlot* TopSlot = RootCanvas->AddChildToCanvas(TopFarmViewImage))
+	{
+		TopSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 0.50f));
+		TopSlot->SetOffsets(FMargin(0.0f));
+	}
+
+	// Top-Left Farm Dimension Badge
+	UBorder* FarmBadge = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("FarmBadge"));
+	FarmBadge->SetBrushColor(FLinearColor(0.04f, 0.14f, 0.07f, 0.88f));
+	FarmBadge->SetPadding(FMargin(16.0f, 8.0f));
+	if (UCanvasPanelSlot* FBSlot = RootCanvas->AddChildToCanvas(FarmBadge))
+	{
+		FBSlot->SetAnchors(FAnchors(0.0f, 0.0f));
+		FBSlot->SetAlignment(FVector2D(0.0f, 0.0f));
+		FBSlot->SetPosition(FVector2D(28.0f, 24.0f));
+		FBSlot->SetAutoSize(true);
+	}
+
+	UTextBlock* FarmBadgeTxt = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("FarmBadgeTxt"));
+	FarmBadgeTxt->SetText(FText::FromString(TEXT("SANCTUARY FARM DIMENSION  (Z = -20,000)\nGrow 9mm, 12G & 5.56mm Ammo Crops  |  Barn Arsenal & Seed Store")));
+	FarmBadgeTxt->SetColorAndOpacity(FSlateColor(FLinearColor(0.62f, 0.98f, 0.72f, 1.0f)));
+	{
+		FSlateFontInfo F = FarmBadgeTxt->GetFont();
+		F.Size = 10;
+		FarmBadgeTxt->SetFont(F);
+	}
+	FarmBadge->SetContent(FarmBadgeTxt);
+
+	// =========================================================================
+	// 2. BOTTOM HALF (0.50 -> 1.0 Y): Live Zombie Quarantine Compound Preview
+	// =========================================================================
+	BottomCombatViewImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("BottomCombatViewImage"));
+	if (UCanvasPanelSlot* BotSlot = RootCanvas->AddChildToCanvas(BottomCombatViewImage))
+	{
+		BotSlot->SetAnchors(FAnchors(0.0f, 0.50f, 1.0f, 1.0f));
+		BotSlot->SetOffsets(FMargin(0.0f));
+	}
+
+	// Bottom-Left Combat Dimension Badge
+	UBorder* CombatBadge = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CombatBadge"));
+	CombatBadge->SetBrushColor(FLinearColor(0.14f, 0.04f, 0.04f, 0.88f));
+	CombatBadge->SetPadding(FMargin(16.0f, 8.0f));
+	if (UCanvasPanelSlot* CBSlot = RootCanvas->AddChildToCanvas(CombatBadge))
+	{
+		CBSlot->SetAnchors(FAnchors(0.0f, 1.0f));
+		CBSlot->SetAlignment(FVector2D(0.0f, 1.0f));
+		CBSlot->SetPosition(FVector2D(28.0f, -24.0f));
+		CBSlot->SetAutoSize(true);
+	}
+
+	UTextBlock* CombatBadgeTxt = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("CombatBadgeTxt"));
+	CombatBadgeTxt->SetText(FText::FromString(TEXT("QUARANTINE COMPOUND — COMBAT DIMENSION  (Z = 0)\nEliminate Roaming Zombies (+100G)  |  7-Gun Radial Wheel [Hold TAB]")));
+	CombatBadgeTxt->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.65f, 0.58f, 1.0f)));
+	{
+		FSlateFontInfo F = CombatBadgeTxt->GetFont();
+		F.Size = 10;
+		CombatBadgeTxt->SetFont(F);
+	}
+	CombatBadge->SetContent(CombatBadgeTxt);
+
+	// =========================================================================
+	// 3. HORIZONTAL RIFT DIVIDER BAR AT Y = 0.50
+	// =========================================================================
+	UBorder* RiftOuterGlow = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RiftOuterGlow"));
+	RiftOuterGlow->SetBrushColor(FLinearColor(0.02f, 0.05f, 0.08f, 0.95f));
+	if (UCanvasPanelSlot* RiftGlowSlot = RootCanvas->AddChildToCanvas(RiftOuterGlow))
+	{
+		RiftGlowSlot->SetAnchors(FAnchors(0.0f, 0.50f, 1.0f, 0.50f));
+		RiftGlowSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		RiftGlowSlot->SetOffsets(FMargin(0.0f, 0.0f, 0.0f, 10.0f));
+	}
+
+	UBorder* RiftCoreLine = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RiftCoreLine"));
+	RiftCoreLine->SetBrushColor(FLinearColor(0.25f, 0.92f, 0.78f, 0.95f));
+	if (UCanvasPanelSlot* RiftLineSlot = RootCanvas->AddChildToCanvas(RiftCoreLine))
+	{
+		RiftLineSlot->SetAnchors(FAnchors(0.0f, 0.50f, 1.0f, 0.50f));
+		RiftLineSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		RiftLineSlot->SetOffsets(FMargin(0.0f, 0.0f, 0.0f, 3.0f));
+	}
+
+	// =========================================================================
+	// 4. CENTER TITLE & START MENU CARD STRADDLING THE HORIZONTAL SPLIT
+	// =========================================================================
+	UBorder* CenterMenuFrame = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CenterMenuFrame"));
+	CenterMenuFrame->SetBrushColor(FLinearColor(0.03f, 0.045f, 0.065f, 0.94f));
+	CenterMenuFrame->SetPadding(FMargin(32.0f, 22.0f));
+	if (UCanvasPanelSlot* MenuSlot = RootCanvas->AddChildToCanvas(CenterMenuFrame))
+	{
+		MenuSlot->SetAnchors(FAnchors(0.50f, 0.50f));
+		MenuSlot->SetAlignment(FVector2D(0.50f, 0.50f));
+		MenuSlot->SetPosition(FVector2D(0.0f, 0.0f));
+		MenuSlot->SetAutoSize(true);
+	}
+
+	UVerticalBox* MenuVBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("MenuVBox"));
+	CenterMenuFrame->SetContent(MenuVBox);
+
+	// Title
+	UTextBlock* TitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("GameTitleText"));
+	TitleText->SetText(FText::FromString(TEXT("DIMENSION SHIFT: HARVEST & HORDE")));
+	TitleText->SetJustification(ETextJustify::Center);
+	TitleText->SetColorAndOpacity(FSlateColor(FLinearColor(0.98f, 0.90f, 0.42f, 1.0f)));
+	{
+		FSlateFontInfo F = TitleText->GetFont();
+		F.Size = 22;
+		TitleText->SetFont(F);
+	}
+	if (UVerticalBoxSlot* TSlot = MenuVBox->AddChildToVerticalBox(TitleText))
+	{
+		TSlot->SetHorizontalAlignment(HAlign_Center);
+		TSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 4.0f));
+	}
+
+	// Tagline
+	UTextBlock* SubtitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("GameSubtitleText"));
+	SubtitleText->SetText(FText::FromString(TEXT("TOP: CULTIVATE AMMO IN THE FARM VALLEY   |   BOTTOM: SURVIVE THE ZOMBIE QUARANTINE")));
+	SubtitleText->SetJustification(ETextJustify::Center);
+	SubtitleText->SetColorAndOpacity(FSlateColor(FLinearColor(0.58f, 0.92f, 0.88f, 1.0f)));
+	{
+		FSlateFontInfo F = SubtitleText->GetFont();
+		F.Size = 10;
+		SubtitleText->SetFont(F);
+	}
+	if (UVerticalBoxSlot* SubSlot = MenuVBox->AddChildToVerticalBox(SubtitleText))
+	{
+		SubSlot->SetHorizontalAlignment(HAlign_Center);
+		SubSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 12.0f));
+	}
+
+	// Controls Quick-Reference Strip
+	UBorder* ControlsBox = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ControlsBox"));
+	ControlsBox->SetBrushColor(FLinearColor(0.06f, 0.08f, 0.11f, 0.92f));
+	ControlsBox->SetPadding(FMargin(18.0f, 8.0f));
+	if (UVerticalBoxSlot* CSlot = MenuVBox->AddChildToVerticalBox(ControlsBox))
+	{
+		CSlot->SetHorizontalAlignment(HAlign_Center);
+		CSlot->SetPadding(FMargin(0.0f, 0.0f, 0.0f, 14.0f));
+	}
+
+	UTextBlock* ControlsText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ControlsText"));
+	ControlsText->SetText(FText::FromString(TEXT("[LEFT SHIFT] Teleport Between Farm & Combat   |   [HOLD TAB] 7-Weapon Radial Wheel   |   [I] Tarkov Backpack   |   [F] Flashlight   |   [B] Barn Store")));
+	ControlsText->SetJustification(ETextJustify::Center);
+	ControlsText->SetColorAndOpacity(FSlateColor(FLinearColor(0.84f, 0.88f, 0.94f, 1.0f)));
+	{
+		FSlateFontInfo F = ControlsText->GetFont();
+		F.Size = 9;
+		ControlsText->SetFont(F);
+	}
+	ControlsBox->SetContent(ControlsText);
+
+	// Action Buttons Row: [ENTER THE SHIFT (START)] + [QUIT GAME]
+	UHorizontalBox* BtnRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("MenuBtnRow"));
+	if (UVerticalBoxSlot* BRowSlot = MenuVBox->AddChildToVerticalBox(BtnRow))
+	{
+		BRowSlot->SetHorizontalAlignment(HAlign_Center);
+	}
+
+	USizeBox* StartSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StartBtnSize"));
+	StartSize->SetWidthOverride(260.0f);
+	StartSize->SetHeightOverride(46.0f);
+	if (UHorizontalBoxSlot* SSlot = BtnRow->AddChildToHorizontalBox(StartSize))
+	{
+		SSlot->SetPadding(FMargin(0.0f, 0.0f, 14.0f, 0.0f));
+	}
+
+	StartButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("StartGameButton"));
+	StartButton->SetBackgroundColor(FLinearColor(0.16f, 0.64f, 0.32f, 1.0f));
+	StartButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnStartGameClicked);
+	StartSize->SetContent(StartButton);
+
+	UTextBlock* StartLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StartGameLabel"));
+	StartLabel->SetText(FText::FromString(TEXT("START GAME  [ENTER / SPACE]")));
+	StartLabel->SetJustification(ETextJustify::Center);
+	StartLabel->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.98f, 0.82f, 1.0f)));
+	{
+		FSlateFontInfo F = StartLabel->GetFont();
+		F.Size = 12;
+		StartLabel->SetFont(F);
+	}
+	StartButton->SetContent(StartLabel);
+
+	USizeBox* QuitSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("QuitBtnSize"));
+	QuitSize->SetWidthOverride(150.0f);
+	QuitSize->SetHeightOverride(46.0f);
+	BtnRow->AddChildToHorizontalBox(QuitSize);
+
+	QuitButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("QuitGameButton"));
+	QuitButton->SetBackgroundColor(FLinearColor(0.46f, 0.14f, 0.14f, 1.0f));
+	QuitButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnQuitGameClicked);
+	QuitSize->SetContent(QuitButton);
+
+	UTextBlock* QuitLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("QuitGameLabel"));
+	QuitLabel->SetText(FText::FromString(TEXT("QUIT")));
+	QuitLabel->SetJustification(ETextJustify::Center);
+	QuitLabel->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	{
+		FSlateFontInfo F = QuitLabel->GetFont();
+		F.Size = 12;
+		QuitLabel->SetFont(F);
+	}
+	QuitButton->SetContent(QuitLabel);
+}
+
+void UStartMenuWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	SpawnSplitScreenCameras();
+
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		PC->SetShowMouseCursor(true);
+		FInputModeGameAndUI Mode;
+		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		Mode.SetWidgetToFocus(TakeWidget());
+		PC->SetInputMode(Mode);
+	}
+}
+
+void UStartMenuWidget::NativeDestruct()
+{
+	DestroySplitScreenCameras();
+	Super::NativeDestruct();
+}
+
+void UStartMenuWidget::SpawnSplitScreenCameras()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Ensure Lvl_Farm is loaded at Z = -20,000 so the top camera sees the Barn, Silo, Crops & Trees
+	if (UGameInstance* GI = World->GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Sub->EnsureFarmLevelLoaded(World);
+		}
+	}
+
+	// 1. Create Render Targets (1280 x 360 widescreen 32:9 per half)
+	if (!FarmRenderTarget)
+	{
+		FarmRenderTarget = NewObject<UTextureRenderTarget2D>(this, TEXT("RT_StartMenu_Farm"));
+		FarmRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+		FarmRenderTarget->ClearColor = FLinearColor(0.42f, 0.65f, 0.90f, 1.0f);
+		FarmRenderTarget->bAutoGenerateMips = false;
+		FarmRenderTarget->InitAutoFormat(1280, 360);
+		FarmRenderTarget->UpdateResourceImmediate(true);
+	}
+
+	if (!CombatRenderTarget)
+	{
+		CombatRenderTarget = NewObject<UTextureRenderTarget2D>(this, TEXT("RT_StartMenu_Combat"));
+		CombatRenderTarget->RenderTargetFormat = ETextureRenderTargetFormat::RTF_RGBA8;
+		CombatRenderTarget->ClearColor = FLinearColor(0.02f, 0.03f, 0.04f, 1.0f);
+		CombatRenderTarget->bAutoGenerateMips = false;
+		CombatRenderTarget->InitAutoFormat(1280, 360);
+		CombatRenderTarget->UpdateResourceImmediate(true);
+	}
+
+	if (TopFarmViewImage && FarmRenderTarget)
+	{
+		FSlateBrush Brush;
+		Brush.SetResourceObject(FarmRenderTarget);
+		Brush.ImageSize = FVector2D(1280.0f, 360.0f);
+		TopFarmViewImage->SetBrush(Brush);
+	}
+
+	if (BottomCombatViewImage && CombatRenderTarget)
+	{
+		FSlateBrush Brush;
+		Brush.SetResourceObject(CombatRenderTarget);
+		Brush.ImageSize = FVector2D(1280.0f, 360.0f);
+		BottomCombatViewImage->SetBrush(Brush);
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	// 2. Spawn Top Half Farm SceneCapture Actor + Warm Golden Fill Lights so the Farm is bright even while Combat lighting is active
+	if (!FarmCaptureActor)
+	{
+		const FVector InitialFarmCamLoc(550.0f, 820.0f, -19550.0f);
+		const FVector FarmLookAt(-150.0f, -1200.0f, -19820.0f);
+		const FRotator InitialFarmRot = UKismetMathLibrary::FindLookAtRotation(InitialFarmCamLoc, FarmLookAt);
+
+		FarmCaptureActor = World->SpawnActor<AActor>(AActor::StaticClass(), InitialFarmCamLoc, InitialFarmRot, Params);
+		if (FarmCaptureActor)
+		{
+			USceneComponent* Root = NewObject<USceneComponent>(FarmCaptureActor, TEXT("FarmCamRoot"));
+			Root->RegisterComponent();
+			FarmCaptureActor->SetRootComponent(Root);
+
+			USceneCaptureComponent2D* Cap = NewObject<USceneCaptureComponent2D>(FarmCaptureActor, TEXT("FarmCaptureComp"));
+			Cap->SetupAttachment(Root);
+			Cap->FOVAngle = 72.0f;
+			Cap->TextureTarget = FarmRenderTarget;
+			Cap->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+			Cap->bCaptureEveryFrame = true;
+			Cap->bCaptureOnMovement = true;
+			Cap->bAlwaysPersistRenderingState = true;
+			Cap->PostProcessBlendWeight = 1.0f;
+			Cap->PostProcessSettings.bOverride_AutoExposureBias = true;
+			Cap->PostProcessSettings.AutoExposureBias = 1.35f;
+			Cap->PostProcessSettings.bOverride_ColorSaturation = true;
+			Cap->PostProcessSettings.ColorSaturation = FVector4(1.15f, 1.15f, 1.10f, 1.0f);
+			Cap->RegisterComponent();
+
+			// Dedicated warm golden sun-fill point lights over the Farm Field & Barn (only visible at Z = -20,000)
+			const FVector LightOffsets[3] = {
+				FVector(-200.0f, -600.0f, 950.0f),   // Over central crop field
+				FVector(-1150.0f, -2600.0f, 1100.0f), // Over Red Barn & Silo
+				FVector(450.0f, -1500.0f, 850.0f)     // Warm fill over pathways & trees
+			};
+			for (int32 i = 0; i < 3; ++i)
+			{
+				UPointLightComponent* WarmLight = NewObject<UPointLightComponent>(FarmCaptureActor, *FString::Printf(TEXT("MenuFarmFillLight_%d"), i));
+				WarmLight->SetupAttachment(Root);
+				WarmLight->SetWorldLocation(FVector(0.0f, 0.0f, -20000.0f) + LightOffsets[i]);
+				WarmLight->SetIntensityUnits(ELightUnits::Candelas);
+				WarmLight->SetIntensity(850.0f);
+				WarmLight->SetAttenuationRadius(6500.0f);
+				WarmLight->SetLightColor(FColor(255, 222, 165));
+				WarmLight->SetCastShadows(false);
+				WarmLight->RegisterComponent();
+			}
+		}
+	}
+
+	// 3. Spawn Bottom Half Combat SceneCapture Actor + Eerie Moonlight Rim Fill looking across the Zombie Compound
+	if (!CombatCaptureActor)
+	{
+		const FVector InitialCombatCamLoc(-980.0f, -980.0f, 340.0f);
+		const FVector CombatLookAt(120.0f, 180.0f, 95.0f);
+		const FRotator InitialCombatRot = UKismetMathLibrary::FindLookAtRotation(InitialCombatCamLoc, CombatLookAt);
+
+		CombatCaptureActor = World->SpawnActor<AActor>(AActor::StaticClass(), InitialCombatCamLoc, InitialCombatRot, Params);
+		if (CombatCaptureActor)
+		{
+			USceneComponent* Root = NewObject<USceneComponent>(CombatCaptureActor, TEXT("CombatCamRoot"));
+			Root->RegisterComponent();
+			CombatCaptureActor->SetRootComponent(Root);
+
+			USceneCaptureComponent2D* Cap = NewObject<USceneCaptureComponent2D>(CombatCaptureActor, TEXT("CombatCaptureComp"));
+			Cap->SetupAttachment(Root);
+			Cap->FOVAngle = 76.0f;
+			Cap->TextureTarget = CombatRenderTarget;
+			Cap->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+			Cap->bCaptureEveryFrame = true;
+			Cap->bCaptureOnMovement = true;
+			Cap->bAlwaysPersistRenderingState = true;
+			Cap->PostProcessBlendWeight = 1.0f;
+			Cap->PostProcessSettings.bOverride_AutoExposureBias = true;
+			Cap->PostProcessSettings.AutoExposureBias = 0.85f;
+			Cap->RegisterComponent();
+
+			// Subtle cold moonlight fill so roaming zombies and ruined barricades read clearly in the bottom split view
+			UPointLightComponent* MoonFill = NewObject<UPointLightComponent>(CombatCaptureActor, TEXT("MenuCombatMoonFill"));
+			MoonFill->SetupAttachment(Root);
+			MoonFill->SetRelativeLocation(FVector(150.0f, 0.0f, 180.0f));
+			MoonFill->SetIntensityUnits(ELightUnits::Candelas);
+			MoonFill->SetIntensity(120.0f);
+			MoonFill->SetAttenuationRadius(3800.0f);
+			MoonFill->SetLightColor(FColor(155, 190, 255));
+			MoonFill->SetCastShadows(false);
+			MoonFill->RegisterComponent();
+		}
+	}
+}
+
+void UStartMenuWidget::EnsurePreviewCropsInFarm()
+{
+	if (bSeededPreviewCrops)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Find streamed Farm plots at Z < -10,000 and showcase mature 3D crops on the first few empty plots if none are visible yet
+	TArray<AFarmPlotBase*> FarmPlots;
+	for (TActorIterator<AFarmPlotBase> It(World); It; ++It)
+	{
+		if (It->GetActorLocation().Z < -10000.0f)
+		{
+			FarmPlots.Add(*It);
+		}
+	}
+
+	if (FarmPlots.Num() > 0)
+	{
+		// Plant and advance the first 4 empty plots to Mature so the top Farm half of the Start Menu showcases 3D crops
+		const FName ShowcaseSeeds[4] = {
+			FName("Seed_ShotgunAmmo"),
+			FName("Seed_RifleAmmo"),
+			FName("Seed_PistolAmmo"),
+			FName("Seed_Medkit")
+		};
+
+		int32 SeededCount = 0;
+		for (AFarmPlotBase* Plot : FarmPlots)
+		{
+			if (Plot && Plot->CanPlant() && SeededCount < 4)
+			{
+				if (Plot->PlantSeed(ShowcaseSeeds[SeededCount]))
+				{
+					Plot->AdvanceGrowthStage(); // Sprout
+					Plot->AdvanceGrowthStage(); // Growing
+					Plot->AdvanceGrowthStage(); // Mature
+					++SeededCount;
+				}
+			}
+		}
+
+		bSeededPreviewCrops = true;
+	}
+}
+
+void UStartMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	MenuElapsedSeconds += InDeltaTime;
+	EnsurePreviewCropsInFarm();
+
+	// 1. Gently pan the Top Half Farm Camera across the Crop Plots, Red Barn, Silo & Trees
+	if (FarmCaptureActor)
+	{
+		const float Angle = MenuElapsedSeconds * 0.22f;
+		const FVector CamPos(
+			420.0f + FMath::Sin(Angle) * 380.0f,
+			640.0f + FMath::Cos(Angle * 0.7f) * 260.0f,
+			-19580.0f + FMath::Sin(Angle * 0.5f) * 55.0f
+		);
+		const FVector TargetLook(-220.0f, -1350.0f, -19820.0f);
+		FarmCaptureActor->SetActorLocationAndRotation(CamPos, UKismetMathLibrary::FindLookAtRotation(CamPos, TargetLook));
+	}
+
+	// 2. Orbit the Bottom Half Combat Camera around the Zombie Quarantine Compound while zombies roam below
+	if (CombatCaptureActor)
+	{
+		const float OrbitAngle = MenuElapsedSeconds * 0.20f + 0.65f;
+		const float Radius = 1180.0f;
+		const FVector CamPos(
+			FMath::Cos(OrbitAngle) * Radius,
+			FMath::Sin(OrbitAngle) * Radius,
+			325.0f + FMath::Sin(OrbitAngle * 1.5f) * 40.0f
+		);
+		const FVector TargetLook(0.0f, 0.0f, 85.0f);
+		CombatCaptureActor->SetActorLocationAndRotation(CamPos, UKismetMathLibrary::FindLookAtRotation(CamPos, TargetLook));
+	}
+}
+
+void UStartMenuWidget::DestroySplitScreenCameras()
+{
+	if (FarmCaptureActor)
+	{
+		FarmCaptureActor->Destroy();
+		FarmCaptureActor = nullptr;
+	}
+	if (CombatCaptureActor)
+	{
+		CombatCaptureActor->Destroy();
+		CombatCaptureActor = nullptr;
+	}
+}
+
+FReply UStartMenuWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	const FKey Key = InKeyEvent.GetKey();
+	if (Key == EKeys::Enter || Key == EKeys::SpaceBar)
+	{
+		OnStartGameClicked();
+		return FReply::Handled();
+	}
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
+}
+
+void UStartMenuWidget::OnStartGameClicked()
+{
+	DestroySplitScreenCameras();
+
+	if (UWorld* World = GetWorld())
+	{
+		if (UGameInstance* GI = World->GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				Sub->bIsStartMenuActive = false;
+				Sub->bHasDismissedStartMenu = true;
+			}
+		}
+	}
+
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		PC->SetShowMouseCursor(false);
+		PC->ResetIgnoreLookInput();
+		PC->ResetIgnoreMoveInput();
+		PC->SetInputMode(FInputModeGameOnly());
+	}
+
+	RemoveFromParent();
+}
+
+void UStartMenuWidget::OnQuitGameClicked()
+{
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		UKismetSystemLibrary::QuitGame(this, PC, EQuitPreference::Quit, false);
+	}
+}

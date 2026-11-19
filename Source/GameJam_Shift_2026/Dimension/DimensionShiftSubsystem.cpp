@@ -175,6 +175,8 @@ void UDimensionShiftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	CurrentGold = StartingGold;
 	UnlockedWeaponSlots.Reset();
 	UnlockedWeaponSlots.Add(0); // Slot 0 (M1911 Classic) is always owned at the start
+	bIsStartMenuActive = true;
+	bHasDismissedStartMenu = false;
 	PrototypeFarmPlatform.Reset();
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem initialized. Starting in Combat dimension with %d Gold and M1911 Classic."), CurrentGold);
 }

@@ -286,10 +286,20 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 
 float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-	// ignore if already dead
+	// Ignore damage while the Start Menu is active or if already dead
 	if (CurrentHP <= 0.0f)
 	{
 		return 0.0f;
+	}
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			if (Sub->bIsStartMenuActive)
+			{
+				return 0.0f;
+			}
+		}
 	}
 
 	// Reduce HP
@@ -354,6 +364,17 @@ void AShooterCharacter::DoJumpEnd()
 
 void AShooterCharacter::DoStartFiring()
 {
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			if (Sub->bIsStartMenuActive)
+			{
+				return;
+			}
+		}
+	}
+
 	// In Farming dimension, route Left Click to plot placement, Barn Shop, or FarmingComponent!
 	if (CurrentDimension == EGameDimension::Farming)
 	{

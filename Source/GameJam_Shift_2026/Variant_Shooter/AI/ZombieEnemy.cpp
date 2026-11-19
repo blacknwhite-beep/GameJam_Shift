@@ -118,7 +118,30 @@ void AZombieEnemy::Tick(float DeltaTime)
 		return;
 	}
 
-	// Pause cleanly if player shifted down into the Farm world
+	// Pause cleanly if player shifted down into the Farm world or while the Start Menu is active (zombies roam instead of attacking)
+	bool bStartMenuOpen = false;
+	if (UGameInstance* GI = World->GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			bStartMenuOpen = Sub->bIsStartMenuActive;
+		}
+	}
+
+	if (bStartMenuOpen)
+	{
+		bAwarePlayer = false;
+		bCanSeePlayer = false;
+		RoamAround(World->GetTimeSeconds());
+		FaceVelocity(DeltaTime);
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			MoveComp->MaxWalkSpeed = ZombieMoveSpeed * RoamSpeedScale;
+		}
+		UpdateLocomotionAnimation();
+		return;
+	}
+
 	if (PlayerPawn->GetActorLocation().Z < -10000.0f)
 	{
 		StopAIMovement();

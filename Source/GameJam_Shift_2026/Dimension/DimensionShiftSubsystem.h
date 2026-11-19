@@ -138,6 +138,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Economy|Weapons")
 	void UnlockWeapon(int32 SlotIndex);
 
+	/** True while the Start Menu split-screen overlay is active (before the player clicks Start Game). */
+	bool bIsStartMenuActive = true;
+
+	/** True once the player has dismissed the Start Menu in this session. */
+	bool bHasDismissedStartMenu = false;
+
 private:
 	/** Set of unlocked weapon slot indices (Slot 0 = M1911 Classic is unlocked by default). */
 	TSet<int32> UnlockedWeaponSlots;

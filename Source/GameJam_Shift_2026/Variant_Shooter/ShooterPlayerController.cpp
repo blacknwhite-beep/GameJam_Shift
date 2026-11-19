@@ -9,7 +9,9 @@
 #include "GameFramework/PlayerStart.h"
 #include "ShooterCharacter.h"
 #include "ShooterBulletCounterUI.h"
+#include "DimensionShiftSubsystem.h"
 #include "InterWorld/GoldHUDWidget.h"
+#include "InterWorld/StartMenuWidget.h"
 #include "GameJam_Shift_2026.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 
@@ -56,6 +58,33 @@ void AShooterPlayerController::BeginPlay()
 		{
 			GoldHUDWidget->AddToViewport(20);
 			GoldHUDWidget->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		}
+
+		// Show the horizontally split Dual-Dimension Start Menu at the start of the session
+		bool bShouldShowStartMenu = true;
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				if (Sub->bHasDismissedStartMenu)
+				{
+					bShouldShowStartMenu = false;
+					Sub->bIsStartMenuActive = false;
+				}
+				else
+				{
+					Sub->bIsStartMenuActive = true;
+				}
+			}
+		}
+
+		if (bShouldShowStartMenu)
+		{
+			StartMenuWidget = CreateWidget<UStartMenuWidget>(this, UStartMenuWidget::StaticClass());
+			if (StartMenuWidget)
+			{
+				StartMenuWidget->AddToViewport(100);
+			}
 		}
 		
 	}
