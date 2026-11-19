@@ -1238,7 +1238,9 @@ void AShooterCharacter::SpawnAllGunPackWeapons()
 	UAnimMontage* RifleFireMontage = LoadObject<UAnimMontage>(
 		nullptr, TEXT("/Game/Variant_Shooter/Anims/FP_Rifle_Shoot_Montage.FP_Rifle_Shoot_Montage"));
 
-	USoundBase* FireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_Fire.S_Pistol_Fire"));
+	USoundBase* ClassicPistolFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_Pistol_Classic.SFX_Pistol_Classic"));
+	USoundBase* TacticalPistolFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_Pistol_Tactical.SFX_Pistol_Tactical"));
+	USoundBase* DefaultFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_Fire.S_Pistol_Fire"));
 	USoundBase* ReloadSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_Reload.S_Pistol_Reload"));
 	USoundBase* DryFireSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Weapons/Pistol/Audio/S_Pistol_DryFire.S_Pistol_DryFire"));
 
@@ -1348,6 +1350,16 @@ void AShooterCharacter::SpawnAllGunPackWeapons()
 			continue;
 		}
 
+		USoundBase* ChosenFireSnd = DefaultFireSnd;
+		if (i == 0 && ClassicPistolFireSnd)
+		{
+			ChosenFireSnd = ClassicPistolFireSnd;
+		}
+		else if (i == 1 && TacticalPistolFireSnd)
+		{
+			ChosenFireSnd = TacticalPistolFireSnd;
+		}
+
 		NewWep->ConfigureCustomGunPackArchetype(
 			S.DisplayName,
 			S.Subtitle,
@@ -1367,7 +1379,7 @@ void AShooterCharacter::SpawnAllGunPackWeapons()
 			S.bUsePistolRig ? TPPistolAnim : TPRifleAnim,
 			S.bUsePistolRig ? PistolFireMontage : RifleFireMontage,
 			PistolReloadMontage,
-			FireSnd,
+			ChosenFireSnd,
 			ReloadSnd,
 			DryFireSnd
 		);
