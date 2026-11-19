@@ -759,10 +759,11 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 			Subsystem->AddMappingContext(WeaponMappingContext, 0);
 		}
 
-		// Restore first person mesh visibility
+		// Restore first person arms visibility ONLY (do NOT propagate to children,
+		// otherwise hidden muzzle flash cones & unused weapon meshes get forced visible!)
 		if (GetFirstPersonMesh())
 		{
-			GetFirstPersonMesh()->SetVisibility(true, true);
+			GetFirstPersonMesh()->SetVisibility(true, false);
 		}
 
 		// Unholster and reactivate weapon when returning to combat

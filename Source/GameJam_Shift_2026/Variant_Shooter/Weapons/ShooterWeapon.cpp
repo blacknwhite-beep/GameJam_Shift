@@ -260,6 +260,12 @@ void AShooterWeapon::ActivateWeapon()
 	SetActorHiddenInGame(false);
 	EquipAnimElapsed = 0.0f;
 
+	// Always ensure muzzle flash cones & light start hidden until a shot is actually fired
+	MuzzleFlashTimeRemaining = 0.0f;
+	if (MuzzleFlashCoreMesh)  { MuzzleFlashCoreMesh->SetVisibility(false, true); }
+	if (MuzzleFlashCrossMesh) { MuzzleFlashCrossMesh->SetVisibility(false, false); }
+	if (MuzzleFlashLight)     { MuzzleFlashLight->SetVisibility(false); }
+
 	if (FirstPersonGunMesh && FirstPersonGunMesh->GetStaticMesh())
 	{
 		FirstPersonGunMesh->SetVisibility(true, true);
