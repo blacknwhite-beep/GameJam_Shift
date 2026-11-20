@@ -200,9 +200,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Time")
 	bool IsNightWindow() const { return CurrentTimeOfDay < 6.0f; }
 
-	/** Returns true if the player is currently allowed to Shift to TargetDimension based on the 24h clock. */
+	/** Returns true if the player is currently allowed to Shift to TargetDimension based on the 24h clock and bed sleep. */
 	UFUNCTION(BlueprintPure, Category = "Time")
 	bool CanShiftToDimension(EGameDimension TargetDimension) const;
+
+	/** Records whether the player is lying in the farmhouse bed (required to shift into Combat at night). */
+	UFUNCTION(BlueprintCallable, Category = "Time")
+	void SetPlayerSleepingInBed(bool bSleeping) { bIsSleepingInBed = bSleeping; }
+
+	/** Returns true while the player is lying in the farmhouse bed. */
+	UFUNCTION(BlueprintPure, Category = "Time")
+	bool IsPlayerSleepingInBed() const { return bIsSleepingInBed; }
+
+	/** Shows a centered on-screen notification via the HUD, falling back to on-screen debug text. */
+	void ShowCenterMessage(const FString& Message, float DurationSeconds = 2.0f, FLinearColor TextColor = FLinearColor(1.0f, 0.85f, 0.35f, 1.0f)) const;
 
 	/** Updates the Farm DirectionalLight rotation, intensity, and color to match CurrentTimeOfDay (never touches Combat). */
 	void UpdateFarmSunForTimeOfDay(UWorld* World) const;
@@ -225,6 +236,9 @@ private:
 
 	/** Timestamp in world seconds of the last successful shift. */
 	float LastShiftTime;
+
+	/** True while the player is lying in the farmhouse bed. */
+	bool bIsSleepingInBed = false;
 
 	/** Reference to the spawned prototype platform so we don't recreate it every shift. */
 	mutable TWeakObjectPtr<AStaticMeshActor> PrototypeFarmPlatform;

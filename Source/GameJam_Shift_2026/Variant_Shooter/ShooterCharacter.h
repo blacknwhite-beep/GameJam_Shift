@@ -9,6 +9,7 @@
 #include "ShooterCharacter.generated.h"
 
 class AShooterWeapon;
+class AFarmBedActor;
 class UInputAction;
 class UInputMappingContext;
 class UInputComponent;
@@ -137,6 +138,20 @@ protected:
 
 	/** True while the [TAB] radial weapon wheel is currently open */
 	bool bIsWeaponWheelOpen = false;
+
+	/** True while the player is lying in the farmhouse bed */
+	bool bIsSleepingInBed = false;
+
+	/** Position before lying down, kept for reference */
+	FVector PreSleepLocation = FVector::ZeroVector;
+
+	/** Camera offset and rotation mode saved before sleeping, restored on wake */
+	FVector DefaultCameraRelLocation = FVector::ZeroVector;
+	FRotator DefaultCameraRelRotation = FRotator::ZeroRotator;
+	bool bSavedUsePawnControlRotation = true;
+
+	/** The bed the player is currently lying in */
+	TWeakObjectPtr<AFarmBedActor> ActiveBed;
 
 	UPROPERTY(EditAnywhere, Category ="Destruction", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
 	float RespawnTime = 5.0f;
@@ -324,6 +339,18 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
 	void CycleToolPrevious();
+
+	/** [E]: lies down in the farmhouse bed at night, shows the bed-hours notice before midnight, or cycles tools */
+	void InteractOrCycleToolNext();
+
+	/** Lies down in the given bed Minecraft-style (90-degree roll) and locks movement and aim */
+	void EnterBedSleep(AFarmBedActor* Bed);
+
+	/** Gets out of bed, restoring camera roll, movement, and (optionally) the wake-up position */
+	void ExitBedSleep(bool bRestorePosition);
+
+	/** True while the player is lying in the farmhouse bed */
+	bool IsSleepingInBed() const { return bIsSleepingInBed; }
 
 	UFUNCTION(BlueprintCallable, Category = "Farming|Input")
 	void CycleSeedNext();

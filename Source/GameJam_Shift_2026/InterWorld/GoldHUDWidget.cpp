@@ -126,6 +126,46 @@ void UGoldHUDWidget::NativeOnInitialized()
 	{
 		VSlot->SetHorizontalAlignment(HAlign_Right);
 	}
+
+	// =========================================================================
+	// 3. CENTER: TEMPORARY NOTIFICATION BANNER (ShowCenterNotification)
+	// =========================================================================
+	CenterNotificationBorder = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CenterNotificationBorder"));
+	CenterNotificationBorder->SetBrushColor(FLinearColor(0.02f, 0.02f, 0.03f, 0.78f));
+	CenterNotificationBorder->SetPadding(FMargin(28.0f, 14.0f));
+	CenterNotificationBorder->SetVisibility(ESlateVisibility::Collapsed);
+	if (UCanvasPanelSlot* BannerSlot = RootCanvas->AddChildToCanvas(CenterNotificationBorder))
+	{
+		BannerSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+		BannerSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		BannerSlot->SetPosition(FVector2D(0.0f, 0.0f));
+		BannerSlot->SetAutoSize(true);
+	}
+
+	CenterNotificationText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("CenterNotificationText"));
+	{
+		FSlateFontInfo F = CenterNotificationText->GetFont();
+		F.Size = 24;
+		CenterNotificationText->SetFont(F);
+	}
+	CenterNotificationText->SetJustification(ETextJustify::Center);
+	CenterNotificationText->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.85f, 0.35f, 1.0f)));
+	CenterNotificationText->SetShadowOffset(FVector2D(2.0f, 2.0f));
+	CenterNotificationText->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.85f));
+	CenterNotificationBorder->SetContent(CenterNotificationText);
+}
+
+void UGoldHUDWidget::ShowCenterNotification(const FString& Message, float DurationSeconds, FLinearColor TextColor)
+{
+	if (!CenterNotificationText || !CenterNotificationBorder)
+	{
+		return;
+	}
+
+	CenterNotificationText->SetText(FText::FromString(Message));
+	CenterNotificationText->SetColorAndOpacity(FSlateColor(TextColor));
+	CenterNotificationBorder->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+	NotificationTimeRemaining = DurationSeconds;
 }
 
 void UGoldHUDWidget::NativeConstruct()
@@ -186,6 +226,15 @@ void UGoldHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 		}
 	}
 
+	if (NotificationTimeRemaining > 0.0f && CenterNotificationBorder)
+	{
+		NotificationTimeRemaining -= InDeltaTime;
+		if (NotificationTimeRemaining <= 0.0f)
+		{
+			CenterNotificationBorder->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+
 	RefreshClockDisplay();
 }
 
@@ -228,10 +277,18 @@ void UGoldHUDWidget::RefreshClockDisplay()
 		}
 		else
 		{
-			ClockShiftStatusText->SetText(FText::FromString(
-				bDev ? TEXT("[LEFT SHIFT] ENTER COMBAT UNLOCKED!  |  [+] +1m") : TEXT("[LEFT SHIFT] ENTER COMBAT UNLOCKED!")
-			));
-			ClockShiftStatusText->SetColorAndOpacity(FSlateColor(FLinearColor(0.40f, 1.0f, 0.55f, 1.0f)));
+			const bool bSleeping = Sub->IsPlayerSleepingInBed();
+			FString StatusText = bSleeping
+				? TEXT("SLEEPING - PRESS [LEFT SHIFT] TO ENTER COMBAT")
+				: TEXT("12:00 AM - SLEEP IN FARMHOUSE BED [E]");
+			if (bDev)
+			{
+				StatusText += TEXT("  |  [+] +1m");
+			}
+			ClockShiftStatusText->SetText(FText::FromString(StatusText));
+			ClockShiftStatusText->SetColorAndOpacity(FSlateColor(bSleeping
+				? FLinearColor(0.40f, 1.0f, 0.55f, 1.0f)
+				: FLinearColor(1.0f, 0.82f, 0.35f, 1.0f)));
 		}
 	}
 	else
@@ -248,7 +305,7 @@ void UGoldHUDWidget::RefreshClockDisplay()
 		if (!bInCombat)
 		{
 			ClockShiftStatusText->SetText(FText::FromString(
-				bDev ? TEXT("COMBAT SHIFT UNLOCKS AT 00:00  |  [+] +1m") : TEXT("COMBAT SHIFT UNLOCKS AT 00:00")
+				bDev ? TEXT("SHIFT TO COMBAT AT 12:00 AM  |  [+] +1m") : TEXT("SHIFT TO COMBAT AT 12:00 AM")
 			));
 			ClockShiftStatusText->SetColorAndOpacity(FSlateColor(FLinearColor(0.92f, 0.78f, 0.45f, 1.0f)));
 		}

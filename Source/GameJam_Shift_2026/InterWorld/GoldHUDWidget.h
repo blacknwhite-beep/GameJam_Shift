@@ -20,6 +20,10 @@ class GAMEJAM_SHIFT_2026_API UGoldHUDWidget : public UUserWidget
 {
 	GENERATED_BODY()
 
+public:
+	/** Shows a centered, auto-hiding notification banner for DurationSeconds. */
+	void ShowCenterNotification(const FString& Message, float DurationSeconds = 2.0f, FLinearColor TextColor = FLinearColor(1.0f, 0.85f, 0.35f, 1.0f));
+
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
@@ -49,6 +53,13 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> ClockShiftStatusText;
 
+	UPROPERTY(Transient)
+	TObjectPtr<UBorder> CenterNotificationBorder;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> CenterNotificationText;
+
 private:
 	float DeltaDisplayRemaining = 0.0f;
+	float NotificationTimeRemaining = 0.0f;
 };

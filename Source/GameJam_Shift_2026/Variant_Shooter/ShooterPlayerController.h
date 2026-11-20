@@ -66,6 +66,11 @@ protected:
 	UPROPERTY()
 	TObjectPtr<class UStartMenuWidget> StartMenuWidget;
 
+public:
+
+	/** Returns the persistent Gold/clock HUD, used for centered screen notifications */
+	class UGoldHUDWidget* GetGoldHUDWidget() const { return GoldHUDWidget; }
+
 protected:
 
 	/** Gameplay Initialization */

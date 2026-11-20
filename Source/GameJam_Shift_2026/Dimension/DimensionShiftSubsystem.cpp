@@ -14,7 +14,10 @@
 #include "GameFramework/WorldSettings.h"
 #include "Farming/FarmPlotBase.h"
 #include "Farming/BarnShopActor.h"
+#include "Farming/FarmHouseActor.h"
 #include "Kismet/GameplayStatics.h"
+#include "ShooterPlayerController.h"
+#include "InterWorld/GoldHUDWidget.h"
 #include "AudioDevice.h"
 #include "Engine/LevelStreamingDynamic.h"
 #include "Misc/PackageName.h"
@@ -36,6 +39,52 @@ namespace
 		if (Comp->IsA<UExponentialHeightFogComponent>()) { return 3; }
 		if (Comp->IsA<UVolumetricCloudComponent>())      { return 4; }
 		return INDEX_NONE;
+	}
+
+	/** Ground + capsule clearance test for a Combat arrival spot at XY; on success writes the grounded location. */
+	bool ProbeCombatSpot(const UWorld* World, const FVector& XY, bool bRequireGroundCheck, FVector& OutLocation)
+	{
+		FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CombatCenterProbe), false);
+
+		const FVector RayStart(XY.X, XY.Y, 600.0f);
+		const FVector RayEnd(XY.X, XY.Y, -2000.0f);
+
+		FHitResult GroundHit;
+		bool bHitGround = World->LineTraceSingleByChannel(GroundHit, RayStart, RayEnd, ECC_WorldStatic, QueryParams);
+		if (!bHitGround)
+		{
+			bHitGround = World->LineTraceSingleByChannel(GroundHit, RayStart, RayEnd, ECC_WorldDynamic, QueryParams);
+		}
+
+		const bool bWalkableGround = bHitGround && (GroundHit.Normal.Z >= 0.5f);
+		if (bRequireGroundCheck && !bWalkableGround)
+		{
+			return false;
+		}
+
+		const FVector Candidate(XY.X, XY.Y, bWalkableGround ? GroundHit.ImpactPoint.Z + 98.0f : 98.0f);
+		if (bWalkableGround && GroundHit.GetActor())
+		{
+			QueryParams.AddIgnoredActor(GroundHit.GetActor());
+		}
+
+		FHitResult ObstructionHit;
+		const bool bObstructed = World->SweepSingleByChannel(
+			ObstructionHit,
+			Candidate + FVector(0.0f, 0.0f, 5.0f),
+			Candidate + FVector(0.0f, 0.0f, 6.0f),
+			FQuat::Identity,
+			ECC_Pawn,
+			FCollisionShape::MakeCapsule(38.0f, 90.0f),
+			QueryParams
+		);
+		if (bObstructed && ObstructionHit.GetActor())
+		{
+			return false;
+		}
+
+		OutLocation = Candidate;
+		return true;
 	}
 }
 
@@ -104,6 +153,17 @@ void UDimensionShiftSubsystem::HandleFarmLevelShown()
 				Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 				World->SpawnActor<ABarnShopActor>(ABarnShopActor::StaticClass(), FVector(-700.0f, -2780.0f, -20000.0f), FRotator::ZeroRotator, Params);
 				UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned ABarnShopActor at Barn entrance."));
+			}
+
+			// Ensure the farmhouse (with its interactive bed) exists beside the Barn
+			TArray<AActor*> Houses;
+			UGameplayStatics::GetAllActorsOfClass(World, AFarmHouseActor::StaticClass(), Houses);
+			if (Houses.Num() == 0)
+			{
+				FActorSpawnParameters Params;
+				Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+				World->SpawnActor<AFarmHouseActor>(AFarmHouseActor::StaticClass(), FVector(-1950.0f, -3150.0f, -20000.0f), FRotator::ZeroRotator, Params);
+				UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned AFarmHouseActor beside the Barn."));
 			}
 		}
 	}
@@ -180,6 +240,7 @@ void UDimensionShiftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	bHasDismissedStartMenu = false;
 	CurrentTimeOfDay = 6.0f; // Day begins at 06:00 AM (Farm Phase)
 	CurrentDay = 1;
+	bIsSleepingInBed = false;
 	PrototypeFarmPlatform.Reset();
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem initialized. Starting in Combat dimension with %d Gold and M1911 Classic."), CurrentGold);
 }
@@ -287,6 +348,32 @@ bool UDimensionShiftSubsystem::CanShiftSafely(const FVector& SourceLocation, FVe
 {
 	if (!World)
 	{
+		return false;
+	}
+
+	// Farm -> Combat: always arrive at the exact middle of Lvl_Combat (0, 0).
+	// If the center is momentarily occupied, use the first clear nearby spot so the player is never stuck in bed.
+	if (SourceLocation.Z <= -10000.0f)
+	{
+		static const FVector2D CombatCenterOffsets[] = {
+			FVector2D(0.0f, 0.0f),
+			FVector2D(120.0f, 0.0f),
+			FVector2D(-120.0f, 0.0f),
+			FVector2D(0.0f, 120.0f),
+			FVector2D(0.0f, -120.0f),
+			FVector2D(200.0f, 200.0f),
+			FVector2D(-200.0f, -200.0f)
+		};
+
+		for (const FVector2D& Offset : CombatCenterOffsets)
+		{
+			if (ProbeCombatSpot(World, FVector(Offset.X, Offset.Y, 0.0f), bRequireGroundCheck, OutTargetLocation))
+			{
+				return true;
+			}
+		}
+
+		UE_LOG(LogGameJam_Shift_2026, Warning, TEXT("CanShiftSafely failed: no clear arrival spot near the center of Lvl_Combat."));
 		return false;
 	}
 
@@ -426,11 +513,20 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 	//   - 00:00 -> 06:00 (Zombie Phase): Shifting to Combat is unlocked; shifting back to Farm unlocks at 06:00 AM.
 	if (!CanShiftToDimension(TargetDimension))
 	{
-		if (GEngine)
+		if (TargetDimension == EGameDimension::Combat)
 		{
-			const FString LockMsg = (TargetDimension == EGameDimension::Combat)
-				? FString::Printf(TEXT("[SHIFT LOCKED] Stay on the Farm until 12:00 AM (00:00)! Current Time: %s"), *GetFormattedTime24H())
-				: FString::Printf(TEXT("[SHIFT LOCKED] Survive the Zombie Night until 06:00 AM! Current Time: %s"), *GetFormattedTime24H());
+			if (IsNightWindow())
+			{
+				ShowCenterMessage(TEXT("Go sleep in your bed inside the farmhouse [E] to enter the Zombie World!"), 3.0f, FLinearColor(1.0f, 0.45f, 0.38f, 1.0f));
+			}
+			else
+			{
+				ShowCenterMessage(FString::Printf(TEXT("Stay on the Farm until 12:00 AM! Current Time: %s"), *GetFormattedTime24H()), 3.0f, FLinearColor(1.0f, 0.65f, 0.25f, 1.0f));
+			}
+		}
+		else if (GEngine)
+		{
+			const FString LockMsg = FString::Printf(TEXT("[SHIFT LOCKED] Survive the Zombie Night until 06:00 AM! Current Time: %s"), *GetFormattedTime24H());
 			GEngine->AddOnScreenDebugMessage(9180, 3.5f, FColor::Orange, LockMsg);
 		}
 		return false;
@@ -465,6 +561,7 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 	// Update state
 	LastShiftTime = CurrentTime;
 	CurrentDimension = TargetDimension;
+	bIsSleepingInBed = false;
 
 	if (GEngine)
 	{
@@ -484,6 +581,26 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 	OnDimensionShifted.Broadcast(CurrentDimension, TargetLocation);
 
 	return true;
+}
+
+void UDimensionShiftSubsystem::ShowCenterMessage(const FString& Message, float DurationSeconds, FLinearColor TextColor) const
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (AShooterPlayerController* PC = Cast<AShooterPlayerController>(UGameplayStatics::GetPlayerController(World, 0)))
+		{
+			if (UGoldHUDWidget* HUD = PC->GetGoldHUDWidget())
+			{
+				HUD->ShowCenterNotification(Message, DurationSeconds, TextColor);
+				return;
+			}
+		}
+	}
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(9190, DurationSeconds, TextColor.ToFColor(true), Message);
+	}
 }
 
 void UDimensionShiftSubsystem::SetCurrentDimension(EGameDimension NewDimension)
@@ -587,8 +704,8 @@ bool UDimensionShiftSubsystem::CanShiftToDimension(EGameDimension TargetDimensio
 {
 	if (TargetDimension == EGameDimension::Combat)
 	{
-		// Entering the Zombie/Combat world unlocks at 12:00 AM (00:00 -> 06:00)
-		return IsNightWindow();
+		// Entering the Zombie/Combat world unlocks at 12:00 AM (00:00 -> 06:00) and only while asleep in the farmhouse bed
+		return IsNightWindow() && bIsSleepingInBed;
 	}
 	// Returning to the Farm world unlocks at 06:00 AM (06:00 -> 24:00)
 	return !IsNightWindow();

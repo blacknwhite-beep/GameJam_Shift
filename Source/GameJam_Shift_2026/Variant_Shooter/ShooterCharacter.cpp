@@ -8,6 +8,9 @@
 #include "DimensionShiftCameraShake.h"
 #include "FarmingComponent.h"
 #include "Farming/BarnShopActor.h"
+#include "Farming/FarmBedActor.h"
+#include "Camera/CameraComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "InterWorldBridge.h"
 #include "EngineUtils.h"
 #include "GameJam_Shift_2026.h"
@@ -195,6 +198,22 @@ void AShooterCharacter::Tick(float DeltaTime)
 		}
 	}
 
+	// Dawn breaks while still asleep: wake up in the bed
+	if (bIsSleepingInBed)
+	{
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				if (!Sub->IsNightWindow())
+				{
+					ExitBedSleep(true);
+					Sub->ShowCenterMessage(TEXT("Dawn breaks. You wake up in the farmhouse."), 3.0f, FLinearColor(0.40f, 1.0f, 0.55f, 1.0f));
+				}
+			}
+		}
+	}
+
 	if (ShiftGlitchRemaining > 0.0f)
 	{
 		ShiftGlitchRemaining = FMath::Max(0.0f, ShiftGlitchRemaining - DeltaTime);
@@ -274,7 +293,7 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindKey(EKeys::Six, IE_Pressed, this, &AShooterCharacter::SelectWeaponSlot6);
 	PlayerInputComponent->BindKey(EKeys::Seven, IE_Pressed, this, &AShooterCharacter::SelectWeaponSlot7);
 	PlayerInputComponent->BindKey(EKeys::Q, IE_Pressed, this, &AShooterCharacter::CycleToolPrevious);
-	PlayerInputComponent->BindKey(EKeys::E, IE_Pressed, this, &AShooterCharacter::CycleToolNext);
+	PlayerInputComponent->BindKey(EKeys::E, IE_Pressed, this, &AShooterCharacter::InteractOrCycleToolNext);
 	PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AShooterCharacter::CycleToolPrevious);
 	PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AShooterCharacter::CycleToolNext);
 	PlayerInputComponent->BindKey(EKeys::T, IE_Pressed, this, &AShooterCharacter::CycleSeedNext);
@@ -344,6 +363,12 @@ float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 
 void AShooterCharacter::DoAim(float Yaw, float Pitch)
 {
+	// the view stays locked while lying in bed
+	if (bIsSleepingInBed)
+	{
+		return;
+	}
+
 	// only route inputs if the character is not dead
 	if (!IsDead())
 	{
@@ -361,6 +386,12 @@ void AShooterCharacter::DoAim(float Yaw, float Pitch)
 
 void AShooterCharacter::DoMove(float Right, float Forward)
 {
+	// no walking while lying in bed
+	if (bIsSleepingInBed)
+	{
+		return;
+	}
+
 	// only route inputs if the character is not dead
 	if (!IsDead())
 	{
@@ -370,6 +401,12 @@ void AShooterCharacter::DoMove(float Right, float Forward)
 
 void AShooterCharacter::DoJumpStart()
 {
+	// no jumping while lying in bed
+	if (bIsSleepingInBed)
+	{
+		return;
+	}
+
 	// only route inputs if the character is not dead
 	if (!IsDead())
 	{
@@ -548,6 +585,160 @@ void AShooterCharacter::ToggleFlashlight()
 	TacticalFlashlight->SetVisibility(bIsFlashlightOn);
 }
 
+void AShooterCharacter::InteractOrCycleToolNext()
+{
+	UDimensionShiftSubsystem* Sub = nullptr;
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		Sub = GI->GetSubsystem<UDimensionShiftSubsystem>();
+	}
+
+	const bool bInFarm = (Sub && Sub->GetCurrentDimension() == EGameDimension::Farming) || GetActorLocation().Z < -10000.0f;
+	if (!Sub || !bInFarm || !GetWorld())
+	{
+		CycleToolNext();
+		return;
+	}
+
+	if (bIsSleepingInBed)
+	{
+		ExitBedSleep(true);
+		return;
+	}
+
+	UCameraComponent* Camera = GetFirstPersonCameraComponent();
+	if (!Camera)
+	{
+		CycleToolNext();
+		return;
+	}
+
+	const FVector TraceStart = Camera->GetComponentLocation();
+	const FVector TraceEnd = TraceStart + Camera->GetForwardVector() * 350.0f;
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(FarmBedInteractTrace), false);
+	Params.AddIgnoredActor(this);
+
+	if (GetWorld()->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_Visibility, Params))
+	{
+		if (AFarmBedActor* Bed = Cast<AFarmBedActor>(Hit.GetActor()))
+		{
+			if (!Sub->IsNightWindow())
+			{
+				Sub->ShowCenterMessage(TEXT("It's work time! Sleeping is from 12 AM."), 2.0f);
+				return;
+			}
+
+			EnterBedSleep(Bed);
+			return;
+		}
+	}
+
+	CycleToolNext();
+}
+
+void AShooterCharacter::EnterBedSleep(AFarmBedActor* Bed)
+{
+	UCameraComponent* Camera = GetFirstPersonCameraComponent();
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	UCapsuleComponent* Capsule = GetCapsuleComponent();
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!Bed || !Camera || !MoveComp || !Capsule || !PC || bIsSleepingInBed)
+	{
+		return;
+	}
+
+	PreSleepLocation = GetActorLocation();
+	DefaultCameraRelLocation = Camera->GetRelativeLocation();
+	DefaultCameraRelRotation = Camera->GetRelativeRotation();
+	bSavedUsePawnControlRotation = Camera->bUsePawnControlRotation;
+	ActiveBed = Bed;
+	bIsSleepingInBed = true;
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Sub->SetPlayerSleepingInBed(true);
+		}
+	}
+
+	MoveComp->StopMovementImmediately();
+	MoveComp->DisableMovement();
+	Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	const FRotator BedFacing = Bed->GetSleepFacingRotation();
+	const FVector SleepEyeLocation = Bed->GetSleepAnchorLocation();
+	SetActorLocationAndRotation(SleepEyeLocation, BedFacing, false, nullptr, ETeleportType::TeleportPhysics);
+	PC->SetControlRotation(BedFacing);
+
+	// Minecraft-style: lie on the bed with a 90-degree roll in world space (bypasses head-bone socket axis)
+	Camera->bUsePawnControlRotation = false;
+	Camera->SetUsingAbsoluteLocation(true);
+	Camera->SetUsingAbsoluteRotation(true);
+	Camera->SetWorldLocationAndRotation(SleepEyeLocation, FRotator(12.0f, BedFacing.Yaw, 90.0f));
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Sub->ShowCenterMessage(TEXT("Sleeping... Press [LEFT SHIFT] to enter Zombie World  |  [E] to get up"), 3.0f);
+		}
+	}
+}
+
+void AShooterCharacter::ExitBedSleep(bool bRestorePosition)
+{
+	if (!bIsSleepingInBed)
+	{
+		return;
+	}
+
+	bIsSleepingInBed = false;
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Sub->SetPlayerSleepingInBed(false);
+		}
+	}
+
+	if (UCameraComponent* Camera = GetFirstPersonCameraComponent())
+	{
+		Camera->SetUsingAbsoluteLocation(false);
+		Camera->SetUsingAbsoluteRotation(false);
+		Camera->SetRelativeLocationAndRotation(DefaultCameraRelLocation, DefaultCameraRelRotation);
+		Camera->bUsePawnControlRotation = bSavedUsePawnControlRotation;
+	}
+
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->SetMovementMode(MOVE_Walking);
+	}
+
+	const AFarmBedActor* Bed = ActiveBed.Get();
+	ActiveBed.Reset();
+
+	if (bRestorePosition)
+	{
+		const FVector WakeLocation = Bed ? Bed->GetWakeUpLocation() : PreSleepLocation;
+		SetActorLocation(WakeLocation, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	const FRotator UprightRotation(0.0f, GetActorRotation().Yaw, 0.0f);
+	SetActorRotation(UprightRotation);
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->SetControlRotation(UprightRotation);
+	}
+}
+
 void AShooterCharacter::InteractBarnShop()
 {
 	if (IsDead() || CurrentDimension != EGameDimension::Farming)
@@ -625,6 +816,12 @@ void AShooterCharacter::HandleDimensionShift()
 void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FVector TargetLocation)
 {
 	CurrentDimension = NewDimension;
+
+	// Waking from bed on shift restores the camera roll and movement immediately
+	if (bIsSleepingInBed)
+	{
+		ExitBedSleep(false);
+	}
 
 	APlayerController* PC = Cast<APlayerController>(GetController());
 	if (!PC)
