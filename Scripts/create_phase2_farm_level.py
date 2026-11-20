@@ -385,63 +385,12 @@ def build_props(m):
     # Pond: water disc sits below the rim so the terrain hides its edge
     wf = "Farm/Pond"
     place(CYLINDER, (POND_X, POND_Y, WATER_Z), (POND_R * 2 * 0.86 / 100.0, POND_R * 2 * 0.86 / 100.0, 0.02), m["water"], "Pond_Water", wf, collision=False)
-    rng = random.Random(11)
-    for i in range(9):
-        a = i / 9.0 * 2 * math.pi + rng.uniform(-0.2, 0.2)
-        r = POND_R * rng.uniform(0.92, 1.08)
-        x, y = POND_X + math.cos(a) * r, POND_Y + math.sin(a) * r
-        s = rng.uniform(0.5, 1.1)
-        place(SPHERE, (x, y, terrain_height(x, y) + 5.0), (s * 1.3, s, s * 0.55), m["stone"], f"Pond_Rock_{i + 1}", wf, rot=(0.0, rng.uniform(0, 360), 0.0))
-    for i in range(14):
-        a = rng.uniform(0, 2 * math.pi)
-        r = POND_R * rng.uniform(0.75, 0.9)
-        x, y = POND_X + math.cos(a) * r, POND_Y + math.sin(a) * r
-        place(CYLINDER, (x, y, WATER_Z + 45.0), (0.05, 0.05, 1.2), m["reed"], f"Pond_Reed_{i + 1}", wf, collision=False)
-
-
-def build_trees(m):
-    f = "Farm/Trees"
-    rng = random.Random(2026)
-    placed = 0
-    attempts = 0
-    trunks = []
-    while placed < 46 and attempts < 1000:
-        attempts += 1
-        a = rng.uniform(0, 2 * math.pi)
-        r = rng.uniform(4300, 14000)
-        x, y = math.cos(a) * r, math.sin(a) * r
-        if abs(x) < 1800 and abs(y) < 2100:
-            continue  # keep the arena footprint clear
-        if math.hypot(x - POND_X, y - POND_Y) < POND_R + 500:
-            continue
-        if -2400 < x < 1200 and -4500 < y < -2300:
-            continue  # barn yard
-        z = terrain_height(x, y) - 20.0
-        s = rng.uniform(0.8, 1.35)
-        leaves = m["leaves"] if rng.random() < 0.6 else m["leaves2"]
-        place(CYLINDER, (x, y, z + 220 * s), (0.55 * s, 0.55 * s, 4.4 * s), m["trunk"], f"Tree_{placed + 1}_Trunk", f)
-        place(SPHERE, (x, y, z + 560 * s), (4.2 * s, 4.2 * s, 3.6 * s), leaves, f"Tree_{placed + 1}_Canopy", f, collision=False)
-        place(SPHERE, (x + 90 * s, y - 70 * s, z + 720 * s), (2.9 * s, 2.9 * s, 2.5 * s), leaves, f"Tree_{placed + 1}_CanopyTop", f, collision=False)
-        trunks.append((x, y))
-        placed += 1
-    # Bushes along the valley edge
-    for i in range(30):
-        a = rng.uniform(0, 2 * math.pi)
-        r = rng.uniform(3600, 6000)
-        x, y = math.cos(a) * r, math.sin(a) * r
-        if math.hypot(x - POND_X, y - POND_Y) < POND_R + 200 or (-2400 < x < 1200 and -4500 < y < -2300):
-            continue
-        s = rng.uniform(0.7, 1.3)
-        place(SPHERE, (x, y, terrain_height(x, y) + 40 * s), (1.6 * s, 1.4 * s, 1.1 * s), m["leaves2"], f"Bush_{i + 1}", f, collision=False)
-    log(f"Placed {placed} trees")
-    return trunks
 
 
 # ---------------------------------------------------------------------------------------------
-# Foliage, wildflowers, planters, stepping stones and lily pads (all non-blocking except planters and stones)
+# Clear zones, stepping stones and lily pads
 # ---------------------------------------------------------------------------------------------
 PATH_SEGMENTS = []  # (ax, ay, bx, by, half_width) for each dirt path; foliage must stay clear of these
-FLOWER_MATS = ["flower_yellow", "flower_white", "flower_lavender", "flower_coral"]
 STEPPING_STONES = [(-850.0, -2360.0), (-1110.0, -2360.0), (-1370.0, -2360.0), (-1700.0, -2330.0), (-1950.0, -2440.0)]
 
 
@@ -481,41 +430,218 @@ def is_clear(x, y, pad=40.0):
     return math.hypot(x - POND_X, y - POND_Y) >= POND_R + pad
 
 
-def build_wildflower_cluster(m, rng, x, y, idx):
-    f = "Farm/Details/Wildflowers"
-    z = terrain_height(x, y)
-    for k in range(rng.randint(3, 5)):
-        ox, oy = rng.uniform(-28.0, 28.0), rng.uniform(-28.0, 28.0)
-        stem = rng.uniform(0.22, 0.32)  # 200 cm cylinder scaled -> 44..64 cm stems
-        yaw = math.radians(rng.uniform(0.0, 360.0))
-        tilt = math.radians(rng.uniform(4.0, 10.0))
-        sx, sy = x + ox, y + oy
-        half = stem * 100.0
-        place(CYLINDER, (sx, sy, z + half), (0.025, 0.025, stem), m["weed_green"], f"Wildflower_{idx}_{k}_Stem", f,
-              rot=(math.degrees(tilt), math.degrees(yaw), 0.0), collision=False)
-        top = (sx - math.sin(tilt) * math.cos(yaw) * half, sy - math.sin(tilt) * math.sin(yaw) * half, z + half + math.cos(tilt) * half)
-        place(SPHERE, top, (0.12, 0.12, 0.08), m[rng.choice(FLOWER_MATS)], f"Wildflower_{idx}_{k}_Bloom", f, collision=False)
+COZY_DIR = "/Game/CozyNature"
+OAK_MESHES = [f"{COZY_DIR}/Meshes/Trees/SM_TreeOak0{i}" for i in (1, 2, 3)]
+BIRCH_MESHES = [f"{COZY_DIR}/Meshes/Trees/SM_TreeBirch0{i}" for i in (1, 2, 3)]
+PINE_MESHES = [f"{COZY_DIR}/Meshes/Trees/SM_TreePine0{i}" for i in (1, 2, 3)]
+BUSH_MESHES = [f"{COZY_DIR}/Meshes/Foliage/SM_Bush0{i}" for i in (1, 2)]
+FLOWER_MESHES = [f"{COZY_DIR}/Meshes/Foliage/SM_Flower{i}" for i in (1, 2)]
+GRASS_MESHES = [f"{COZY_DIR}/Meshes/Foliage/SM_Grass{i}" for i in (1, 2)]
+ROCK_MESHES = [f"{COZY_DIR}/Meshes/Rocks/SM_Rock{i}" for i in (1, 2, 3)]
+COZY_CACHE = {}
+# Flanking spots for wildflower clusters: field corners and gate, paths, barn entrance, farmhouse yard
+WILDFLOWER_SPOTS = [
+    (80.0, -730.0), (1340.0, -730.0), (1340.0, 730.0), (80.0, 730.0), (100.0, -235.0),
+    (-420.0, 210.0), (-1050.0, -215.0), (-2250.0, -220.0), (-1500.0, 250.0), (-1800.0, -300.0),
+    (-420.0, -950.0), (-980.0, -1600.0), (-420.0, -1900.0),
+    (-1534.0, 1461.0), (-1960.0, 1759.0), (-2402.0, 1129.0),
+    (-430.0, -2520.0), (-980.0, -2520.0),
+    (-2440.0, -2480.0), (-1480.0, -2520.0),
+]
+BARN_CORNERS = [(-1410.0, -3860.0), (10.0, -3860.0), (-1410.0, -2740.0), (10.0, -2740.0)]
+FENCE_CORNERS_OUTSIDE = [(40.0, -780.0), (1380.0, -780.0), (1380.0, 780.0), (40.0, 780.0)]
 
 
-def build_grass_tuft(m, rng, x, y, idx):
-    f = "Farm/Details/Grass"
-    z = terrain_height(x, y)
-    for b in range(rng.randint(2, 3)):
-        h = rng.uniform(0.25, 0.42)  # 100 cm cone scaled -> 25..42 cm blades
-        mat = m["weed_green"] if rng.random() < 0.6 else m["weed_dark"]
-        place(CONE, (x + rng.uniform(-6.0, 6.0), y + rng.uniform(-6.0, 6.0), z + h * 45.0), (0.04, 0.04, h), mat,
-              f"GrassTuft_{idx}_{b}", f, rot=(rng.uniform(12.0, 24.0), rng.uniform(0.0, 360.0), 0.0), collision=False)
+def load_cozy(path):
+    """Loads a Cozy Nature mesh and caches its bounding box in local centimetres."""
+    if path not in COZY_CACHE:
+        mesh = unreal.load_asset(path)
+        if not mesh:
+            raise RuntimeError(f"Missing Cozy Nature mesh: {path}")
+        bb = mesh.get_bounding_box()
+        height = bb.max.z - bb.min.z
+        COZY_CACHE[path] = (mesh, bb.min.z, height)
+        log(f"{path.split('/')[-1]}: height {height:.1f} cm, bottom at {bb.min.z:.1f} cm")
+    return COZY_CACHE[path]
 
 
-def build_flower_planter(m, rng, x, y, yaw, idx):
-    f = "Farm/Details/Planters"
-    place(CUBE, (x, y, 17.5), (1.2, 0.4, 0.35), m["wood"], f"Planter_{idx}_Box", f, rot=(0.0, yaw, 0.0))
-    place(CUBE, (x, y, 35.0), (1.12, 0.32, 0.03), m["soil_dry"], f"Planter_{idx}_Soil", f, rot=(0.0, yaw, 0.0), collision=False)
-    c, s = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
-    for k, off in enumerate((-45.0, -22.0, 0.0, 22.0, 45.0)):
-        bx, by = x + off * c, y + off * s
-        place(CYLINDER, (bx, by, 36.5 + 12.0), (0.025, 0.025, 0.12), m["weed_green"], f"Planter_{idx}_Stem{k}", f, collision=False)
-        place(SPHERE, (bx, by, 36.5 + 28.0), (0.12, 0.12, 0.12), m[rng.choice(FLOWER_MATS)], f"Planter_{idx}_Bloom{k}", f, collision=False)
+def place_cozy(path, x, y, scale, label, folder, sink=0.0, yaw=0.0, collision=True):
+    """Spawns a Cozy Nature mesh grounded on the terrain via its bounding box.
+    Its built-in material slots are never touched, so bark, leaves and textures stay as authored."""
+    mesh, bb_min_z, _ = load_cozy(path)
+    z = terrain_height(x, y) - bb_min_z * scale - sink
+    actor = actor_sub.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(x, y, z), unreal.Rotator(roll=0.0, pitch=0.0, yaw=yaw))
+    comp = actor.static_mesh_component
+    comp.set_mobility(unreal.ComponentMobility.MOVABLE)
+    comp.set_static_mesh(mesh)
+    actor.set_actor_scale3d(unreal.Vector(scale, scale, scale))
+    if not collision:
+        comp.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
+    actor.set_actor_label(label)
+    actor.set_folder_path(folder)
+    return actor
+
+
+def in_arena(x, y, pad=0.0):
+    """Combat arrival footprint: solid props (trees, rocks) stay out so a Shift is never blocked."""
+    return abs(x) < 1800.0 + pad and abs(y) < 2100.0 + pad
+
+
+def ok_solid_spot(x, y, pad):
+    return is_clear(x, y, pad) and not in_arena(x, y, pad)
+
+
+def flower_spot_ok(x, y):
+    if not is_clear(x, y, 25.0):
+        return False
+    if any(math.hypot(x - sx, y - sy) < 120.0 for sx, sy in STEPPING_STONES):
+        return False
+    return not in_box(x, y, -2080.0, -1820.0, -2900.0, -2600.0)  # doorway and porch approach stay open
+
+
+def build_cozy_trees(rng):
+    f = "Farm/Trees"
+    trees = []
+
+    def try_tree(paths, r_min, r_max):
+        for _ in range(400):
+            a = rng.uniform(0.0, 2.0 * math.pi)
+            r = rng.uniform(r_min, r_max)
+            x, y = math.cos(a) * r, math.sin(a) * r
+            if not ok_solid_spot(x, y, 150.0):
+                continue
+            if any(math.hypot(x - tx, y - ty) < 700.0 for tx, ty in trees):
+                continue
+            path = rng.choice(paths)
+            _, _, native_h = load_cozy(path)
+            base = max(0.45, min(1.6, 650.0 / native_h))  # normalise to about 650 cm tall
+            scale = base * rng.uniform(0.85, 1.30)
+            place_cozy(path, x, y, scale, f"Tree_{len(trees) + 1}", f, sink=12.0, yaw=rng.uniform(0.0, 360.0), collision=True)
+            trees.append((x, y))
+            return True
+        return False
+
+    meadow = sum(try_tree(OAK_MESHES + BIRCH_MESHES, 3800.0, 7500.0) for _ in range(30))
+    hills = sum(try_tree(PINE_MESHES, 6500.0, 14000.0) for _ in range(20))
+    log(f"Placed {len(trees)} Cozy Nature trees ({meadow} oak/birch on the meadow, {hills} pine on the hills)")
+    return trees
+
+
+def build_cozy_bushes(rng, tree_xy):
+    f = "Farm/Foliage/Bushes"
+    centers = rng.sample(tree_xy, min(10, len(tree_xy))) + FENCE_CORNERS_OUTSIDE + BARN_CORNERS
+    for i in range(4):
+        a = i / 4.0 * 2.0 * math.pi + 0.5
+        centers.append((POND_X + math.cos(a) * POND_R * 1.12, POND_Y + math.sin(a) * POND_R * 1.12))
+    placed = 0
+    for cx, cy in centers:
+        for _ in range(rng.randint(2, 3)):
+            if placed >= 26:
+                break
+            a = rng.uniform(0.0, 2.0 * math.pi)
+            r = rng.uniform(70.0, 150.0)
+            x, y = cx + math.cos(a) * r, cy + math.sin(a) * r
+            if not is_clear(x, y, 60.0):
+                continue
+            placed += 1
+            place_cozy(rng.choice(BUSH_MESHES), x, y, rng.uniform(1.0, 1.6), f"Bush_{placed}", f, sink=3.0, yaw=rng.uniform(0.0, 360.0), collision=False)
+    log(f"Placed {placed} Cozy Nature bushes")
+
+
+def build_cozy_rocks(rng, tree_xy):
+    f = "Farm/Pond/Rocks"
+    rocks = []
+    for i in range(11):
+        a = i / 11.0 * 2.0 * math.pi + rng.uniform(-0.15, 0.15)
+        r = POND_R * rng.uniform(1.0, 1.06)  # seated on the bank, just outside the water edge
+        x, y = POND_X + math.cos(a) * r, POND_Y + math.sin(a) * r
+        if not ok_solid_spot(x, y, 0.0):
+            continue
+        place_cozy(rng.choice(ROCK_MESHES), x, y, rng.uniform(0.9, 1.5), f"Pond_Rock_{i + 1}", f, sink=10.0, yaw=rng.uniform(0.0, 360.0), collision=True)
+        rocks.append((x, y))
+    accents = 0
+    for tx, ty in rng.sample(tree_xy, min(12, len(tree_xy))):
+        if accents >= 7:
+            break
+        a = rng.uniform(0.0, 2.0 * math.pi)
+        r = rng.uniform(180.0, 320.0)
+        x, y = tx + math.cos(a) * r, ty + math.sin(a) * r
+        if not ok_solid_spot(x, y, 60.0):
+            continue
+        accents += 1
+        place_cozy(rng.choice(ROCK_MESHES), x, y, rng.uniform(1.4, 2.2), f"Boulder_{accents}", "Farm/Foliage/Boulders", sink=8.0, yaw=rng.uniform(0.0, 360.0), collision=True)
+        rocks.append((x, y))
+    log(f"Placed {len(rocks) - accents} pond rim rocks and {accents} accent boulders")
+    return rocks
+
+
+def build_cozy_wildflowers(rng):
+    f = "Farm/Foliage/Wildflowers"
+    spots = list(WILDFLOWER_SPOTS)
+    for a in (0.9, 4.3):
+        spots.append((POND_X + math.cos(a) * POND_R * 1.12, POND_Y + math.sin(a) * POND_R * 1.12))
+    clusters = 0
+    for x, y in spots:
+        if not flower_spot_ok(x, y):
+            log(f"Skipped wildflower spot ({x:.0f}, {y:.0f}): inside a clear zone")
+            continue
+        clusters += 1
+        for k in range(rng.randint(2, 3)):
+            ox, oy = rng.uniform(-22.0, 22.0), rng.uniform(-22.0, 22.0)
+            place_cozy(rng.choice(FLOWER_MESHES), x + ox, y + oy, rng.uniform(1.3, 1.9), f"Wildflower_{clusters}_{k + 1}", f, sink=1.0, yaw=rng.uniform(0.0, 360.0), collision=False)
+    log(f"Placed {clusters} wildflower clusters")
+
+
+def build_cozy_grass(rng, tree_xy, rock_xy):
+    f = "Farm/Foliage/Grass"
+    cands = []
+    for i in range(11):
+        x = 150.0 + i * 110.0
+        cands += [(x, -720.0), (x, 720.0)]
+    for i in range(11):
+        y = -650.0 + i * 130.0
+        cands += [(1340.0, y), (80.0, y)]
+    cands += BARN_CORNERS
+    for rx, ry in rock_xy:
+        a = rng.uniform(0.0, 2.0 * math.pi)
+        r = rng.uniform(100.0, 150.0)
+        cands.append((rx + math.cos(a) * r, ry + math.sin(a) * r))
+    for tx, ty in tree_xy:
+        a = rng.uniform(0.0, 2.0 * math.pi)
+        r = rng.uniform(100.0, 160.0)
+        cands.append((tx + math.cos(a) * r, ty + math.sin(a) * r))
+    for _ in range(14):
+        a = rng.uniform(0.0, 2.0 * math.pi)
+        r = POND_R * rng.uniform(1.05, 1.2)
+        cands.append((POND_X + math.cos(a) * r, POND_Y + math.sin(a) * r))
+    rng.shuffle(cands)
+    placed = 0
+    for x, y in cands:
+        if placed >= 42:
+            break
+        if not is_clear(x, y, 40.0):
+            continue
+        placed += 1
+        place_cozy(rng.choice(GRASS_MESHES), x, y, rng.uniform(1.2, 1.8), f"GrassClump_{placed}", f, sink=1.0, yaw=rng.uniform(0.0, 360.0), collision=False)
+    log(f"Placed {placed} Cozy Nature grass clumps")
+
+
+def build_stepping_stones(m):
+    for i, (x, y) in enumerate(STEPPING_STONES):
+        place(CYLINDER, (x, y, 2.0), (0.45, 0.45, 0.08), m["stone"], f"StepStone_{i + 1}", "Farm/Details/Stones")
+    log(f"Placed {len(STEPPING_STONES)} stepping stones")
+
+
+def build_cozy_nature(m):
+    rng = random.Random(2026)
+    build_path_segments()
+    tree_xy = build_cozy_trees(rng)
+    build_cozy_bushes(rng, tree_xy)
+    rock_xy = build_cozy_rocks(rng, tree_xy)
+    build_cozy_wildflowers(rng)
+    build_cozy_grass(rng, tree_xy, rock_xy)
+    build_stepping_stones(m)
+    build_lily_pads(m, random.Random(777))
 
 
 def build_lily_pads(m, rng):
@@ -525,7 +651,7 @@ def build_lily_pads(m, rng):
         if len(pads) >= 12:
             break
         a = rng.uniform(0.0, 2.0 * math.pi)
-        r = POND_R * rng.uniform(0.12, 0.5)  # deep water only; reeds and rocks stay on the rim
+        r = POND_R * rng.uniform(0.12, 0.5)  # deep water only; rim rocks stay on the bank
         x, y = POND_X + math.cos(a) * r, POND_Y + math.sin(a) * r
         if all(math.hypot(x - px, y - py) >= 150.0 for px, py in pads):
             pads.append((x, y))
@@ -536,72 +662,6 @@ def build_lily_pads(m, rng):
             x, y = pads[i * 6 + 2]
             place(SPHERE, (x, y, WATER_Z + 4.0), (0.16, 0.16, 0.09), m[mat_key], f"WaterLily_{i + 1}", f, collision=False)
     log(f"Placed {len(pads)} lily pads on the pond")
-
-
-def build_foliage_and_details(m, trunks):
-    rng = random.Random(777)
-    build_path_segments()
-
-    # Wildflower clusters at natural focal points (each one is checked against the clear zones)
-    flower_spots = [
-        (80.0, -730.0), (1340.0, -730.0), (1340.0, 730.0), (80.0, 730.0),  # field fence corners
-        (-420.0, 210.0), (-1050.0, -215.0), (-2250.0, -220.0),  # Path_Main flanks
-        (-420.0, -950.0), (-980.0, -1600.0),  # Path_ToBarn flanks
-        (-1534.0, 1461.0), (-1960.0, 1759.0),  # Path_ToPond flanks
-        (-430.0, -2520.0), (-980.0, -2520.0),  # Barn entrance
-        (-2440.0, -2480.0),  # Farmhouse yard, west of the porch
-    ]
-    for a in (0.9, 4.3):  # Pond bank, just outside the rim
-        flower_spots.append((POND_X + math.cos(a) * POND_R * 1.12, POND_Y + math.sin(a) * POND_R * 1.12))
-    flowers = 0
-    for idx, (x, y) in enumerate(flower_spots):
-        if is_clear(x, y, 25.0):
-            build_wildflower_cluster(m, rng, x, y, idx + 1)
-            flowers += 1
-        else:
-            log(f"Skipped wildflower cluster at ({x:.0f}, {y:.0f}): inside a clear zone")
-    log(f"Placed {flowers} wildflower clusters")
-
-    # Grass tufts and weeds along fence bases, barn corners, pond shore, rocks and tree trunks
-    candidates = []
-    for i in range(11):
-        x = 150.0 + i * 110.0
-        candidates += [(x, -720.0), (x, 720.0)]
-    for i in range(11):
-        y = -650.0 + i * 130.0
-        candidates += [(1340.0, y), (80.0, y)]
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            candidates.append((-700.0 + sx * 710.0, -3300.0 + sy * 560.0))
-    for _ in range(14):
-        a = rng.uniform(0.0, 2.0 * math.pi)
-        r = POND_R * rng.uniform(1.05, 1.2)
-        candidates.append((POND_X + math.cos(a) * r, POND_Y + math.sin(a) * r))
-    for tx_, ty_ in trunks:
-        a = rng.uniform(0.0, 2.0 * math.pi)
-        r = rng.uniform(90.0, 130.0)
-        candidates.append((tx_ + math.cos(a) * r, ty_ + math.sin(a) * r))
-    rng.shuffle(candidates)
-    tufts = 0
-    for x, y in candidates:
-        if tufts >= 32:
-            break
-        if is_clear(x, y, 40.0):
-            build_grass_tuft(m, rng, x, y, tufts + 1)
-            tufts += 1
-    log(f"Placed {tufts} grass tufts")
-
-    # Flower planter boxes: barn front, beside the field gate, and a second one by the barn
-    build_flower_planter(m, rng, -400.0, -2640.0, 0.0, 1)
-    build_flower_planter(m, rng, -1080.0, -2640.0, 0.0, 2)
-    build_flower_planter(m, rng, 100.0, -245.0, 90.0, 3)
-
-    # Stepping stones from the barn path to the farmhouse porch (smooth, low, seated flush in grass)
-    for i, (x, y) in enumerate(STEPPING_STONES):
-        place(CYLINDER, (x, y, 2.0), (0.45, 0.45, 0.08), m["stone"], f"StepStone_{i + 1}", "Farm/Details/Stones")
-    log(f"Placed {len(STEPPING_STONES)} stepping stones")
-
-    build_lily_pads(m, rng)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -697,19 +757,9 @@ def main():
         "dirt": make_instance(solid, "MI_Farm_DirtPath", (0.27, 0.19, 0.1), 0.97),
         "water": make_instance(solid, "MI_Farm_Water", (0.04, 0.22, 0.30), 0.06, 0.05),
         "stone": make_instance(solid, "MI_Farm_Stone", (0.3, 0.29, 0.27), 0.85),
-        "reed": make_instance(solid, "MI_Farm_Reed", (0.2, 0.3, 0.08), 0.9),
-        "flower_yellow": make_instance(solid, "MI_Farm_FlowerYellow", (0.92, 0.72, 0.12), 0.6),
-        "flower_white": make_instance(solid, "MI_Farm_FlowerWhite", (0.94, 0.93, 0.86), 0.6),
-        "flower_lavender": make_instance(solid, "MI_Farm_FlowerLavender", (0.58, 0.44, 0.85), 0.6),
-        "flower_coral": make_instance(solid, "MI_Farm_FlowerCoral", (0.86, 0.28, 0.22), 0.6),
-        "weed_green": make_instance(solid, "MI_Farm_WeedGreen", (0.10, 0.28, 0.05), 0.9),
-        "weed_dark": make_instance(solid, "MI_Farm_WeedDark", (0.06, 0.19, 0.035), 0.9),
         "lily_pad": make_instance(solid, "MI_Farm_LilyPad", (0.12, 0.36, 0.10), 0.6),
         "lily_pink": make_instance(solid, "MI_Farm_LilyPink", (0.95, 0.50, 0.66), 0.5),
         "lily_white": make_instance(solid, "MI_Farm_LilyWhite", (0.97, 0.96, 0.92), 0.5),
-        "trunk": make_instance(solid, "MI_Farm_TreeTrunk", (0.13, 0.08, 0.045), 0.95),
-        "leaves": make_instance(solid, "MI_Farm_Leaves", (0.06, 0.2, 0.035), 0.9),
-        "leaves2": make_instance(solid, "MI_Farm_LeavesLight", (0.12, 0.27, 0.05), 0.9),
     }
     terrain_mat = make_terrain_material()
     terrain_mesh = build_terrain_mesh(terrain_mat)
@@ -724,13 +774,12 @@ def main():
         place(terrain_mesh, (0, 0, 0), (1.0, 1.0, 1.0), terrain_mat, "Farm_Terrain_RollingHills", "Farm/Terrain")
     else:
         # Fallback flat ground so the farm is always walkable
-        place(CUBE, (0, 0, -50), (600.0, 600.0, 1.0), m["leaves2"], "Farm_Terrain_FlatFallback", "Farm/Terrain")
+        place(CUBE, (0, 0, -50), (600.0, 600.0, 1.0), m["dirt"], "Farm_Terrain_FlatFallback", "Farm/Terrain")
 
     build_barn(m)
     build_field_and_plots(m)
     build_props(m)
-    trunks = build_trees(m)
-    build_foliage_and_details(m, trunks)
+    build_cozy_nature(m)
     build_lighting()
     build_ambient_sound()
 
