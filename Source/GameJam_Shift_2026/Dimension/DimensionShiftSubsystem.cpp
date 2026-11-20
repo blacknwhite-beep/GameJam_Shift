@@ -690,6 +690,19 @@ void UDimensionShiftSubsystem::UpdateFarmSunForTimeOfDay(UWorld* World) const
 
 		if (UDirectionalLightComponent* SunComp = It->FindComponentByClass<UDirectionalLightComponent>())
 		{
+			// Ensure the Farm sun light component is Movable at runtime so rotating it never triggers mobility warnings
+			if (SunComp->Mobility != EComponentMobility::Movable)
+			{
+				SunComp->SetMobility(EComponentMobility::Movable);
+			}
+			if (USceneComponent* RootComp = It->GetRootComponent())
+			{
+				if (RootComp->Mobility != EComponentMobility::Movable)
+				{
+					RootComp->SetMobility(EComponentMobility::Movable);
+				}
+			}
+
 			// Map 06:00 -> 20:00 to a smooth sun arc across the sky (-8 deg sunrise -> -72 deg noon -> -172 deg sunset)
 			// and 20:00 -> 06:00 to cool twilight / moonlit farm evening so the farm feels late at night
 			float SunPitch = -24.0f;
