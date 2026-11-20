@@ -9,6 +9,7 @@
 
 class ACharacter;
 class AStaticMeshActor;
+class AFarmBedActor;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnGoldChanged, int32, NewGold, int32, Delta);
 
@@ -212,6 +213,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Time")
 	bool IsPlayerSleepingInBed() const { return bIsSleepingInBed; }
 
+	/** Records the farmhouse bed the player last slept in so returning from Combat puts them back in it. */
+	void SetLastSleptBed(AFarmBedActor* Bed);
+
+	/** Returns the farmhouse bed the player last slept in (if still valid). */
+	AFarmBedActor* GetLastSleptBed() const;
+
+	/** Teleports the player into the Farming world at game start (sunlit Farm, tools equipped). */
+	UFUNCTION(BlueprintCallable, Category = "Dimension Shift")
+	bool TeleportToFarmStart(ACharacter* PlayerCharacter);
+
 	/** Shows a centered on-screen notification via the HUD, falling back to on-screen debug text. */
 	void ShowCenterMessage(const FString& Message, float DurationSeconds = 2.0f, FLinearColor TextColor = FLinearColor(1.0f, 0.85f, 0.35f, 1.0f)) const;
 
@@ -239,6 +250,12 @@ private:
 
 	/** True while the player is lying in the farmhouse bed. */
 	bool bIsSleepingInBed = false;
+
+	/** True after shifting Farm -> Combat from bed, so Combat -> Farm returns to the exact sleeping position. */
+	bool bShouldReturnToBed = false;
+
+	/** Bed the player slept in before shifting into Combat. */
+	TWeakObjectPtr<AFarmBedActor> LastSleptBed;
 
 	/** Reference to the spawned prototype platform so we don't recreate it every shift. */
 	mutable TWeakObjectPtr<AStaticMeshActor> PrototypeFarmPlatform;

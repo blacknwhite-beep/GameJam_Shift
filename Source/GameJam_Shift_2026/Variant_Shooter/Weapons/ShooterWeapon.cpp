@@ -2,7 +2,9 @@
 
 
 #include "ShooterWeapon.h"
+#include "DimensionShiftSubsystem.h"
 #include "Inventory/TarkovInventoryComponent.h"
+#include "Engine/GameInstance.h"
 #include "Engine/Engine.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/GameplayStatics.h"
@@ -409,10 +411,29 @@ void AShooterWeapon::StartReload()
 
 void AShooterWeapon::FinishReload()
 {
-	// Pull matching ammo directly from the player's Tarkov Backpack
-	const int32 RoundsNeeded = FMath::Max(0, MagazineSize - CurrentBullets);
-	const int32 RoundsLoaded = ConsumeInventoryAmmo(RoundsNeeded);
-	CurrentBullets = FMath::Clamp(CurrentBullets + RoundsLoaded, 0, MagazineSize);
+	bool bDevInfiniteAmmo = false;
+	if (const UWorld* World = GetWorld())
+	{
+		if (const UGameInstance* GI = World->GetGameInstance())
+		{
+			if (const UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				bDevInfiniteAmmo = Sub->IsDeveloperModeEnabled();
+			}
+		}
+	}
+
+	if (bDevInfiniteAmmo)
+	{
+		CurrentBullets = MagazineSize;
+	}
+	else
+	{
+		// Pull matching ammo directly from the player's Tarkov Backpack
+		const int32 RoundsNeeded = FMath::Max(0, MagazineSize - CurrentBullets);
+		const int32 RoundsLoaded = ConsumeInventoryAmmo(RoundsNeeded);
+		CurrentBullets = FMath::Clamp(CurrentBullets + RoundsLoaded, 0, MagazineSize);
+	}
 
 	if (AActor* OwnerActor = GetOwner())
 	{
@@ -488,8 +509,19 @@ bool AShooterWeapon::CanReload() const
 		return false;
 	}
 
-	// require matching ammo in the player's Tarkov Backpack
-	if (GetAvailableInventoryAmmo() <= 0)
+	// require matching ammo in the player's Tarkov Backpack (unless Developer Mode infinite ammo is active)
+	bool bDevInfiniteAmmo = false;
+	if (const UWorld* World = GetWorld())
+	{
+		if (const UGameInstance* GI = World->GetGameInstance())
+		{
+			if (const UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				bDevInfiniteAmmo = Sub->IsDeveloperModeEnabled();
+			}
+		}
+	}
+	if (!bDevInfiniteAmmo && GetAvailableInventoryAmmo() <= 0)
 	{
 		return false;
 	}
@@ -521,6 +553,23 @@ void AShooterWeapon::Fire()
 	if (bIsReloading)
 	{
 		return;
+	}
+
+	// In Developer Mode, weapons have infinite ammo and never run dry
+	bool bDevInfiniteAmmo = false;
+	if (const UWorld* World = GetWorld())
+	{
+		if (const UGameInstance* GI = World->GetGameInstance())
+		{
+			if (const UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				bDevInfiniteAmmo = Sub->IsDeveloperModeEnabled();
+			}
+		}
+	}
+	if (bDevInfiniteAmmo && CurrentBullets <= 0)
+	{
+		CurrentBullets = MagazineSize;
 	}
 
 	// handle pulling the trigger on an empty magazine
@@ -633,8 +682,27 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 		MuzzleFlashLight->SetVisibility(true);
 	}
 
-	// consume bullets
-	--CurrentBullets;
+	// consume bullets (unless Developer Mode infinite ammo is enabled)
+	bool bDevInfiniteAmmo = false;
+	if (const UWorld* World = GetWorld())
+	{
+		if (const UGameInstance* GI = World->GetGameInstance())
+		{
+			if (const UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				bDevInfiniteAmmo = Sub->IsDeveloperModeEnabled();
+			}
+		}
+	}
+
+	if (bDevInfiniteAmmo)
+	{
+		CurrentBullets = MagazineSize;
+	}
+	else
+	{
+		--CurrentBullets;
+	}
 
 	if (AActor* OwnerActor = GetOwner())
 	{

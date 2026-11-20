@@ -134,6 +134,10 @@ void AShooterCharacter::BeginPlay()
 			if (IsPlayerControlled())
 			{
 				Subsystem->EnsureFarmLevelLoaded(GetWorld());
+				if (Subsystem->bHasDismissedStartMenu && GetActorLocation().Z > -10000.0f)
+				{
+					Subsystem->TeleportToFarmStart(this);
+				}
 			}
 		}
 	}
@@ -194,22 +198,6 @@ void AShooterCharacter::Tick(float DeltaTime)
 			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
 			{
 				Sub->TickDayNightClock(GetWorld(), DeltaTime);
-			}
-		}
-	}
-
-	// Dawn breaks while still asleep: wake up in the bed
-	if (bIsSleepingInBed)
-	{
-		if (UGameInstance* GI = GetGameInstance())
-		{
-			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
-			{
-				if (!Sub->IsNightWindow())
-				{
-					ExitBedSleep(true);
-					Sub->ShowCenterMessage(TEXT("Dawn breaks. You wake up in the farmhouse."), 3.0f, FLinearColor(0.40f, 1.0f, 0.55f, 1.0f));
-				}
 			}
 		}
 	}
@@ -637,7 +625,7 @@ void AShooterCharacter::InteractOrCycleToolNext()
 	CycleToolNext();
 }
 
-void AShooterCharacter::EnterBedSleep(AFarmBedActor* Bed)
+void AShooterCharacter::EnterBedSleep(AFarmBedActor* Bed, bool bIsWakingMorning)
 {
 	UCameraComponent* Camera = GetFirstPersonCameraComponent();
 	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
@@ -660,6 +648,7 @@ void AShooterCharacter::EnterBedSleep(AFarmBedActor* Bed)
 		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
 		{
 			Sub->SetPlayerSleepingInBed(true);
+			Sub->SetLastSleptBed(Bed);
 		}
 	}
 
@@ -682,7 +671,14 @@ void AShooterCharacter::EnterBedSleep(AFarmBedActor* Bed)
 	{
 		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
 		{
-			Sub->ShowCenterMessage(TEXT("Sleeping... Press [LEFT SHIFT] to enter Zombie World  |  [E] to get up"), 3.0f);
+			if (bIsWakingMorning)
+			{
+				Sub->ShowCenterMessage(TEXT("Good morning! Press [E] to get out of bed."), 3.0f, FLinearColor(0.45f, 1.0f, 0.60f, 1.0f));
+			}
+			else
+			{
+				Sub->ShowCenterMessage(TEXT("Sleeping... Press [LEFT SHIFT] to enter Zombie World  |  [E] to get up"), 3.0f);
+			}
 		}
 	}
 }

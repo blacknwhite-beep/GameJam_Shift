@@ -15,7 +15,9 @@
 #include "Farming/FarmPlotBase.h"
 #include "Farming/BarnShopActor.h"
 #include "Farming/FarmHouseActor.h"
+#include "Farming/FarmBedActor.h"
 #include "Kismet/GameplayStatics.h"
+#include "ShooterCharacter.h"
 #include "ShooterPlayerController.h"
 #include "InterWorld/GoldHUDWidget.h"
 #include "AudioDevice.h"
@@ -241,6 +243,8 @@ void UDimensionShiftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	CurrentTimeOfDay = 6.0f; // Day begins at 06:00 AM (Farm Phase)
 	CurrentDay = 1;
 	bIsSleepingInBed = false;
+	bShouldReturnToBed = false;
+	LastSleptBed.Reset();
 	PrototypeFarmPlatform.Reset();
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem initialized. Starting in Combat dimension with %d Gold and M1911 Classic."), CurrentGold);
 }
@@ -395,6 +399,21 @@ bool UDimensionShiftSubsystem::CanShiftSafely(const FVector& SourceLocation, FVe
 			MutableWorld->FlushLevelStreaming();
 		}
 		EnsurePrototypeFarmPlatform(MutableWorld);
+
+		// Returning from Combat after sleeping: land directly back in the exact farmhouse bed sleeping anchor
+		if (bShouldReturnToBed)
+		{
+			AFarmBedActor* ReturnBed = LastSleptBed.Get();
+			if (!ReturnBed)
+			{
+				ReturnBed = Cast<AFarmBedActor>(UGameplayStatics::GetActorOfClass(MutableWorld, AFarmBedActor::StaticClass()));
+			}
+			if (ReturnBed)
+			{
+				OutTargetLocation = ReturnBed->GetSleepAnchorLocation();
+				return true;
+			}
+		}
 	}
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(DimensionShiftSafetySweep), false);
@@ -532,6 +551,9 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 		return false;
 	}
 
+	const bool bEnteringCombatFromBed = (TargetDimension == EGameDimension::Combat && bIsSleepingInBed);
+	const bool bReturningToBed = (TargetDimension == EGameDimension::Farming && bShouldReturnToBed);
+
 	// Destination safety and clearance check
 	FVector TargetLocation = FVector::ZeroVector;
 	if (!CanShiftSafely(PlayerCharacter->GetActorLocation(), TargetLocation, World))
@@ -562,6 +584,14 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 	LastShiftTime = CurrentTime;
 	CurrentDimension = TargetDimension;
 	bIsSleepingInBed = false;
+	if (bEnteringCombatFromBed)
+	{
+		bShouldReturnToBed = true;
+	}
+	else if (bReturningToBed)
+	{
+		bShouldReturnToBed = false;
+	}
 
 	if (GEngine)
 	{
@@ -580,6 +610,97 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 	// Broadcast event to notify audio, camera shake, visual effects, and UI
 	OnDimensionShifted.Broadcast(CurrentDimension, TargetLocation);
 
+	// If returning from Combat after fighting time ends, place the player right back into the exact sleeping pose
+	if (bReturningToBed)
+	{
+		AFarmBedActor* ReturnBed = LastSleptBed.Get();
+		if (!ReturnBed)
+		{
+			ReturnBed = Cast<AFarmBedActor>(UGameplayStatics::GetActorOfClass(World, AFarmBedActor::StaticClass()));
+		}
+		if (AShooterCharacter* ShooterChar = Cast<AShooterCharacter>(PlayerCharacter))
+		{
+			if (ReturnBed)
+			{
+				ShooterChar->EnterBedSleep(ReturnBed, true);
+			}
+		}
+	}
+
+	return true;
+}
+
+void UDimensionShiftSubsystem::SetLastSleptBed(AFarmBedActor* Bed)
+{
+	LastSleptBed = Bed;
+}
+
+AFarmBedActor* UDimensionShiftSubsystem::GetLastSleptBed() const
+{
+	return LastSleptBed.Get();
+}
+
+bool UDimensionShiftSubsystem::TeleportToFarmStart(ACharacter* PlayerCharacter)
+{
+	if (!PlayerCharacter)
+	{
+		return false;
+	}
+
+	UWorld* World = PlayerCharacter->GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	if (AWorldSettings* WS = World->GetWorldSettings())
+	{
+		if (WS->KillZ > -30000.0f)
+		{
+			WS->KillZ = -100000.0f;
+		}
+	}
+
+	EnsureFarmLevelLoaded(World);
+	if (FarmLevelStreaming.IsValid() && !FarmLevelStreaming->IsLevelVisible())
+	{
+		World->FlushLevelStreaming();
+	}
+	EnsurePrototypeFarmPlatform(World);
+
+	// Scenic farm arrival spot between the Farmhouse & Barn, facing +Y toward the crop field
+	FVector StartLocation(-700.0f, -2100.0f, FarmWorldOffset.Z + 98.0f);
+	FHitResult GroundHit;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(FarmStartGroundTrace), false);
+	if (World->LineTraceSingleByChannel(
+		GroundHit,
+		FVector(StartLocation.X, StartLocation.Y, FarmWorldOffset.Z + 600.0f),
+		FVector(StartLocation.X, StartLocation.Y, FarmWorldOffset.Z - 2000.0f),
+		ECC_WorldStatic,
+		QueryParams))
+	{
+		StartLocation.Z = GroundHit.ImpactPoint.Z + 98.0f;
+	}
+
+	if (UCharacterMovementComponent* MoveComp = PlayerCharacter->GetCharacterMovement())
+	{
+		MoveComp->Velocity = FVector::ZeroVector;
+	}
+
+	const FRotator StartRot(0.0f, 90.0f, 0.0f);
+	PlayerCharacter->TeleportTo(StartLocation, StartRot, false, true);
+	if (APlayerController* PC = Cast<APlayerController>(PlayerCharacter->GetController()))
+	{
+		PC->SetControlRotation(StartRot);
+	}
+
+	CurrentDimension = EGameDimension::Farming;
+	bIsSleepingInBed = false;
+	bShouldReturnToBed = false;
+	ApplyDimensionLighting(World, EGameDimension::Farming);
+	UpdateFarmSunForTimeOfDay(World);
+
+	OnDimensionShifted.Broadcast(EGameDimension::Farming, StartLocation);
 	return true;
 }
 

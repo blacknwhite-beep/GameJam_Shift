@@ -344,7 +344,7 @@ public:
 	void InteractOrCycleToolNext();
 
 	/** Lies down in the given bed Minecraft-style (90-degree roll) and locks movement and aim */
-	void EnterBedSleep(AFarmBedActor* Bed);
+	void EnterBedSleep(AFarmBedActor* Bed, bool bIsWakingMorning = false);
 
 	/** Gets out of bed, restoring camera roll, movement, and (optionally) the wake-up position */
 	void ExitBedSleep(bool bRestorePosition);

@@ -31,6 +31,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -442,7 +443,7 @@ void UStartMenuWidget::NativeOnInitialized()
 	DevInfoCol->AddChildToVerticalBox(DevTitle);
 
 	UTextBlock* DevDesc = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DevDesc"));
-	DevDesc->SetText(FText::FromString(TEXT("Unlocks all 7 weapons, Infinite Gold & [+] key to skip +1 min")));
+	DevDesc->SetText(FText::FromString(TEXT("Unlocks all 7 weapons, Infinite Gold, Infinite Ammo & [+] (+1 min)")));
 	DevDesc->SetColorAndOpacity(FSlateColor(FLinearColor(0.72f, 0.78f, 0.86f, 1.0f)));
 	{
 		FSlateFontInfo F = DevDesc->GetFont();
@@ -1022,14 +1023,18 @@ void UStartMenuWidget::OnStartGameClicked()
 {
 	DestroySplitScreenCameras();
 
+	bool bStartingFreshGame = false;
+	UDimensionShiftSubsystem* ShiftSub = nullptr;
 	if (UWorld* World = GetWorld())
 	{
 		if (UGameInstance* GI = World->GetGameInstance())
 		{
 			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
 			{
+				bStartingFreshGame = !Sub->bHasDismissedStartMenu;
 				Sub->bIsStartMenuActive = false;
 				Sub->bHasDismissedStartMenu = true;
+				ShiftSub = Sub;
 			}
 		}
 	}
@@ -1040,6 +1045,15 @@ void UStartMenuWidget::OnStartGameClicked()
 		PC->ResetIgnoreLookInput();
 		PC->ResetIgnoreMoveInput();
 		PC->SetInputMode(FInputModeGameOnly());
+
+		// Always start a new game in the sunlit Farm world (not the Zombie world)
+		if (bStartingFreshGame && ShiftSub)
+		{
+			if (ACharacter* PlayerChar = PC->GetCharacter())
+			{
+				ShiftSub->TeleportToFarmStart(PlayerChar);
+			}
+		}
 	}
 
 	RemoveFromParent();
