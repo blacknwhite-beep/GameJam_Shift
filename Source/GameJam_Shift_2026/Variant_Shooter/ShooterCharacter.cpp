@@ -1030,11 +1030,10 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 			Subsystem->AddMappingContext(WeaponMappingContext, 0);
 		}
 
-		// Restore first person arms visibility ONLY (do NOT propagate to children,
-		// otherwise hidden muzzle flash cones & unused weapon meshes get forced visible!)
+		// Keep old gray Mannequin FP arms hidden when using the Animated Cubic Farmer
 		if (GetFirstPersonMesh())
 		{
-			GetFirstPersonMesh()->SetVisibility(true, false);
+			GetFirstPersonMesh()->SetVisibility(!bUsingFarmerMesh, false);
 		}
 
 		// Unholster and reactivate weapon when returning to combat
@@ -1042,8 +1041,8 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 		{
 			CurrentWeapon->ActivateWeapon();
 
-			// Restore character mesh AnimInstances
-			if (GetFirstPersonMesh())
+			// Restore character mesh AnimInstances (skip when using the Animated Cubic Farmer)
+			if (GetFirstPersonMesh() && !bUsingFarmerMesh)
 			{
 				GetFirstPersonMesh()->SetAnimInstanceClass(CurrentWeapon->GetFirstPersonAnimInstanceClass());
 			}
@@ -1104,10 +1103,26 @@ void AShooterCharacter::AttachWeaponMeshes(AShooterWeapon* Weapon)
 	// attach the weapon actor
 	Weapon->AttachToActor(this, AttachmentRule);
 
-	// attach the weapon meshes
-	Weapon->GetFirstPersonMesh()->AttachToComponent(GetFirstPersonMesh(), AttachmentRule, FirstPersonWeaponSocket);
-	Weapon->GetThirdPersonMesh()->AttachToComponent(GetMesh(), AttachmentRule, FirstPersonWeaponSocket);
-	
+	// Attach the First-Person weapon + Cubic Farmer hands cleanly to the First-Person Camera
+	// (eliminates the old gray Unreal Mannequin arms & broken pistol/SMG left-hand anim offsets!)
+	if (UCameraComponent* FPCam = GetFirstPersonCameraComponent())
+	{
+		Weapon->GetFirstPersonMesh()->AttachToComponent(FPCam, AttachmentRule);
+		Weapon->GetFirstPersonMesh()->SetRelativeLocationAndRotation(
+			FVector(27.0f, 10.5f, -12.5f),
+			FRotator(0.0f, -90.0f, 0.0f)
+		);
+	}
+	else
+	{
+		Weapon->GetFirstPersonMesh()->AttachToComponent(GetFirstPersonMesh(), AttachmentRule, FirstPersonWeaponSocket);
+	}
+
+	// Attach Third-Person weapon mesh to the Farmer's right hand bone
+	const FName ThirdPersonSocket = GetMesh() && GetMesh()->DoesSocketExist(FName("hand_r"))
+		? FName("hand_r")
+		: FirstPersonWeaponSocket;
+	Weapon->GetThirdPersonMesh()->AttachToComponent(GetMesh(), AttachmentRule, ThirdPersonSocket);
 }
 
 void AShooterCharacter::PlayFiringMontage(UAnimMontage* Montage)
@@ -1195,10 +1210,10 @@ void AShooterCharacter::OnWeaponActivated(AShooterWeapon* Weapon)
 	// update the bullet counter
 	OnBulletCountUpdated.Broadcast(Weapon->GetMagazineSize(), Weapon->GetBulletCount());
 
-	// set the character mesh AnimInstances
-	GetFirstPersonMesh()->SetAnimInstanceClass(Weapon->GetFirstPersonAnimInstanceClass());
+	// set the character mesh AnimInstances (skip when using the Animated Cubic Farmer)
 	if (!bUsingFarmerMesh)
 	{
+		GetFirstPersonMesh()->SetAnimInstanceClass(Weapon->GetFirstPersonAnimInstanceClass());
 		GetMesh()->SetAnimInstanceClass(Weapon->GetThirdPersonAnimInstanceClass());
 	}
 }
@@ -1757,6 +1772,13 @@ void AShooterCharacter::InitializeFarmerCharacterMesh()
 	BodyMesh->bCastHiddenShadow = true;
 	BodyMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 
+	// Hide the old gray Unreal Mannequin FP arms permanently (weapons now render with Cubic Farmer hands on the camera)
+	if (GetFirstPersonMesh())
+	{
+		GetFirstPersonMesh()->SetVisibility(false, false);
+		GetFirstPersonMesh()->SetAnimInstanceClass(nullptr);
+	}
+
 	// Hide only the head bone in First-Person so the player sees their Farmer body/legs/overalls & shadow without head clipping
 	BodyMesh->HideBoneByName(FName("head"), PBO_None);
 
@@ -1911,7 +1933,7 @@ void AShooterCharacter::ToggleThirdPersonView()
 
 	if (GetFirstPersonMesh())
 	{
-		const bool bShowFPArms = (!bIsThirdPersonView && CurrentDimension == EGameDimension::Combat);
-		GetFirstPersonMesh()->SetVisibility(bShowFPArms, false);
+		// Never unhide the old gray Mannequin FP arms when using the Animated Cubic Farmer
+		GetFirstPersonMesh()->SetVisibility(false, false);
 	}
 }

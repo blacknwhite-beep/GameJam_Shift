@@ -63,7 +63,32 @@ class GAMEJAM_SHIFT_2026_API AShooterWeapon : public AActor
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAudioComponent> AutoFireAudioComp;
 
+	/** Stylized Cubic Low-Poly Farmer First-Person Hands & Sleeves gripping the weapon (replaces gray Mannequin arms) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> FarmerRightHand;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> FarmerRightArm;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> FarmerLeftHand;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> FarmerLeftArm;
+
 protected:
+
+	/** Builds & colors the Cubic Farmer First-Person hands/sleeves to match SKM_Farmer_male */
+	void SetupFarmerHandsVisuals();
+
+	/** True for pistols (two-handed Weaver grip on pistol grip), false for SMGs/rifles (left hand on foregrip) */
+	bool bIsPistolArchetype = true;
+
+	/** Rest & reload keyframes for the Farmer's left hand in FirstPersonMesh local space (+Y forward, +X left, +Z up) */
+	FVector LeftHandRestOffset = FVector(1.8f, 3.5f, -1.2f);
+	FVector LeftHandMagOffset = FVector(0.8f, 1.0f, -6.5f);
+	FVector LeftHandRackOffset = FVector(2.2f, 8.0f, 5.2f);
+	float IdleSwayTime = 0.0f;
 
 	/** Stops the continuous full-auto firing loop cleanly */
 	void StopAutoFireAudio();

@@ -91,6 +91,22 @@ AShooterWeapon::AShooterWeapon()
 	AutoFireAudioComp = CreateDefaultSubobject<UAudioComponent>(TEXT("AutoFireAudioComp"));
 	AutoFireAudioComp->SetupAttachment(FirstPersonMesh);
 	AutoFireAudioComp->bAutoActivate = false;
+
+	// Create stylized Cubic Low-Poly Farmer First-Person Hands & Flannel Forearms (matching SKM_Farmer_male)
+	auto InitHandPiece = [this](const TCHAR* Name, USceneComponent* Parent) -> UStaticMeshComponent*
+	{
+		UStaticMeshComponent* Comp = CreateDefaultSubobject<UStaticMeshComponent>(Name);
+		Comp->SetupAttachment(Parent);
+		Comp->SetCollisionProfileName(FName("NoCollision"));
+		Comp->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::FirstPerson);
+		Comp->bOnlyOwnerSee = true;
+		Comp->SetCastShadow(false);
+		return Comp;
+	};
+	FarmerRightHand = InitHandPiece(TEXT("FarmerRightHand"), FirstPersonMesh);
+	FarmerRightArm  = InitHandPiece(TEXT("FarmerRightArm"), FarmerRightHand);
+	FarmerLeftHand  = InitHandPiece(TEXT("FarmerLeftHand"), FirstPersonMesh);
+	FarmerLeftArm   = InitHandPiece(TEXT("FarmerLeftArm"), FarmerLeftHand);
 }
 
 void AShooterWeapon::BeginPlay()
@@ -148,6 +164,63 @@ void AShooterWeapon::BeginPlay()
 			if (MuzzleFlashCrossMesh) { MuzzleFlashCrossMesh->SetMaterial(0, MuzzleFlashMID); }
 		}
 	}
+
+	SetupFarmerHandsVisuals();
+}
+
+void AShooterWeapon::SetupFarmerHandsVisuals()
+{
+	UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+	UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
+	if (!CubeMesh)
+	{
+		return;
+	}
+
+	UMaterialInstanceDynamic* SkinMID = BaseMat ? UMaterialInstanceDynamic::Create(BaseMat, this) : nullptr;
+	if (SkinMID)
+	{
+		// Warm cubic low-poly Farmer skin tone matching SKM_Farmer_male
+		SkinMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.88f, 0.67f, 0.52f, 1.0f));
+		SkinMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.03f, 0.02f, 0.015f, 1.0f));
+	}
+
+	UMaterialInstanceDynamic* SleeveMID = BaseMat ? UMaterialInstanceDynamic::Create(BaseMat, this) : nullptr;
+	if (SleeveMID)
+	{
+		// Farmer blue denim/flannel sleeve matching SKM_Farmer_male
+		SleeveMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.18f, 0.36f, 0.60f, 1.0f));
+		SleeveMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.01f, 0.02f, 0.035f, 1.0f));
+	}
+
+	if (FarmerRightHand)
+	{
+		FarmerRightHand->SetStaticMesh(CubeMesh);
+		FarmerRightHand->SetRelativeScale3D(FVector(0.044f, 0.068f, 0.064f));
+		if (SkinMID) { FarmerRightHand->SetMaterial(0, SkinMID); }
+	}
+	if (FarmerRightArm)
+	{
+		FarmerRightArm->SetStaticMesh(CubeMesh);
+		FarmerRightArm->SetRelativeLocation(FVector(-65.0f, -210.0f, -55.0f));
+		FarmerRightArm->SetRelativeRotation(FRotator(12.0f, 16.0f, 0.0f));
+		FarmerRightArm->SetRelativeScale3D(FVector(1.25f, 3.6f, 1.25f));
+		if (SleeveMID) { FarmerRightArm->SetMaterial(0, SleeveMID); }
+	}
+	if (FarmerLeftHand)
+	{
+		FarmerLeftHand->SetStaticMesh(CubeMesh);
+		FarmerLeftHand->SetRelativeScale3D(FVector(0.044f, 0.068f, 0.062f));
+		if (SkinMID) { FarmerLeftHand->SetMaterial(0, SkinMID); }
+	}
+	if (FarmerLeftArm)
+	{
+		FarmerLeftArm->SetStaticMesh(CubeMesh);
+		FarmerLeftArm->SetRelativeLocation(FVector(80.0f, -215.0f, -65.0f));
+		FarmerLeftArm->SetRelativeRotation(FRotator(14.0f, -22.0f, 0.0f));
+		FarmerLeftArm->SetRelativeScale3D(FVector(1.25f, 3.8f, 1.25f));
+		if (SleeveMID) { FarmerLeftArm->SetMaterial(0, SleeveMID); }
+	}
 }
 
 void AShooterWeapon::Tick(float DeltaTime)
@@ -163,40 +236,60 @@ void AShooterWeapon::Tick(float DeltaTime)
 	CurrentRecoilOffset = FMath::VInterpTo(CurrentRecoilOffset, FVector::ZeroVector, DeltaTime, 18.0f);
 	CurrentRecoilRot = FMath::RInterpTo(CurrentRecoilRot, FRotator::ZeroRotator, DeltaTime, 16.0f);
 
-	// 2. Compute procedural reload animation offset (smooth mag-swap dip, tilt & bolt rack)
+	// 2. Smooth 4-stage procedural reload animation (gun tilt + animated left-hand mag swap & slide/bolt rack)
 	FVector ReloadOffset = FVector::ZeroVector;
 	FRotator ReloadRot = FRotator::ZeroRotator;
+	FVector LeftHandAnimOffset = LeftHandRestOffset;
+	FRotator LeftHandAnimRot = bIsPistolArchetype ? FRotator(0.0f, -24.0f, 8.0f) : FRotator(6.0f, -10.0f, -12.0f);
+
 	if (bIsReloading && ReloadDuration > 0.05f)
 	{
 		ReloadAnimElapsed += DeltaTime;
 		const float Alpha = FMath::Clamp(ReloadAnimElapsed / ReloadDuration, 0.0f, 1.0f);
 
-		// Smooth 3-stage reload motion curve:
-		// Stage A (0.0 -> 0.25): Tilt weapon 32 deg & dip down to eject mag
-		// Stage B (0.25 -> 0.72): Hold tilted down with two tactile mag-out / mag-in pulses
-		// Stage C (0.72 -> 1.0): Rack bolt backward slightly and snap back to ready position
 		float DipFactor = 0.0f;
 		float BoltRackBack = 0.0f;
-		if (Alpha < 0.25f)
+		if (Alpha < 0.28f)
 		{
-			DipFactor = FMath::InterpEaseInOut(0.0f, 1.0f, Alpha / 0.25f, 2.0f);
+			// Stage 1: Tilt gun cleanly to the side while left hand reaches to magwell & pulls empty mag down
+			const float T = FMath::InterpEaseInOut(0.0f, 1.0f, Alpha / 0.28f, 2.0f);
+			DipFactor = T;
+			const FVector MagDropPos = LeftHandMagOffset + FVector(1.0f, -1.5f, -12.0f);
+			LeftHandAnimOffset = FMath::Lerp(LeftHandRestOffset, MagDropPos, T);
+			LeftHandAnimRot = FRotator(-18.0f * T, -25.0f, 15.0f * T);
 		}
-		else if (Alpha < 0.72f)
+		else if (Alpha < 0.68f)
 		{
-			const float MidPhase = (Alpha - 0.25f) / 0.47f;
-			// Add tactile mag-eject and mag-insert vertical jolt
-			const float Jolt = FMath::Sin(MidPhase * PI * 2.0f) * 0.18f;
-			DipFactor = 1.0f + Jolt;
+			// Stage 2: Left hand lifts a fresh magazine cleanly up into the magwell with a crisp seat pulse
+			const float T = (Alpha - 0.28f) / 0.40f;
+			const float SmoothT = FMath::InterpEaseInOut(0.0f, 1.0f, T, 2.0f);
+			const FVector MagDropPos = LeftHandMagOffset + FVector(1.0f, -1.5f, -12.0f);
+			LeftHandAnimOffset = FMath::Lerp(MagDropPos, LeftHandMagOffset + FVector(0.0f, 0.0f, 2.5f), SmoothT);
+			LeftHandAnimRot = FRotator(-10.0f * (1.0f - SmoothT), -22.0f, 10.0f);
+			const float SeatJolt = (T > 0.75f) ? FMath::Sin(((T - 0.75f) / 0.25f) * PI) * 0.22f : 0.0f;
+			DipFactor = 1.0f - SeatJolt;
+		}
+		else if (Alpha < 0.86f)
+		{
+			// Stage 3: Left hand reaches up to the slide/charging handle and racks it backward
+			const float T = (Alpha - 0.68f) / 0.18f;
+			const float RackPulse = FMath::Sin(T * PI);
+			DipFactor = FMath::Lerp(1.0f, 0.35f, T);
+			BoltRackBack = RackPulse * 4.5f;
+			LeftHandAnimOffset = FMath::Lerp(LeftHandMagOffset, LeftHandRackOffset, FMath::Min(1.0f, T * 1.4f))
+				+ FVector(0.0f, -RackPulse * 6.5f, 0.0f);
+			LeftHandAnimRot = FRotator(8.0f, -35.0f, -15.0f);
 		}
 		else
 		{
-			const float EndPhase = (Alpha - 0.72f) / 0.28f;
-			DipFactor = FMath::InterpEaseInOut(1.0f, 0.0f, EndPhase, 2.0f);
-			BoltRackBack = FMath::Sin(EndPhase * PI) * 4.2f;
+			// Stage 4: Gun snaps back to aim-ready while left hand returns cleanly to the grip/foregrip
+			const float T = FMath::InterpEaseInOut(0.0f, 1.0f, (Alpha - 0.86f) / 0.14f, 2.0f);
+			DipFactor = FMath::Lerp(0.35f, 0.0f, T);
+			LeftHandAnimOffset = FMath::Lerp(LeftHandRackOffset, LeftHandRestOffset, T);
 		}
 
-		ReloadOffset = FVector(-BoltRackBack, -4.5f * DipFactor, -11.5f * DipFactor);
-		ReloadRot = FRotator(26.0f * DipFactor, -14.0f * DipFactor, -34.0f * DipFactor);
+		ReloadOffset = FVector(-1.5f * DipFactor, -BoltRackBack - 3.5f * DipFactor, -7.5f * DipFactor);
+		ReloadRot = FRotator(22.0f * DipFactor, -10.0f * DipFactor, -30.0f * DipFactor);
 	}
 	else
 	{
@@ -215,9 +308,32 @@ void AShooterWeapon::Tick(float DeltaTime)
 		EquipRot = FRotator(-18.0f * Smooth, 0.0f, -15.0f * Smooth);
 	}
 
-	FirstPersonGunMesh->SetRelativeLocation(BaseGunRelativeLocation + CurrentRecoilOffset + ReloadOffset + EquipOffset);
-	const FQuat FinalQuat = FQuat(BaseGunRelativeRotation) * FQuat(CurrentRecoilRot + ReloadRot + EquipRot);
+	// 4. Subtle organic breathing sway so the Cubic Farmer hands & gun feel alive
+	IdleSwayTime += DeltaTime;
+	const FVector SwayOffset(
+		FMath::Sin(IdleSwayTime * 1.6f) * 0.22f,
+		0.0f,
+		FMath::Sin(IdleSwayTime * 3.2f) * 0.18f
+	);
+
+	const FVector TotalMotionOffset = CurrentRecoilOffset + ReloadOffset + EquipOffset + SwayOffset;
+	const FRotator TotalMotionRot = CurrentRecoilRot + ReloadRot + EquipRot;
+
+	FirstPersonGunMesh->SetRelativeLocation(BaseGunRelativeLocation + TotalMotionOffset);
+	const FQuat FinalQuat = FQuat(BaseGunRelativeRotation) * FQuat(TotalMotionRot);
 	FirstPersonGunMesh->SetRelativeRotation(FinalQuat.Rotator());
+
+	// Keep the Cubic Farmer's right hand locked to the pistol grip & left hand gripping / reloading cleanly
+	if (FarmerRightHand)
+	{
+		FarmerRightHand->SetRelativeLocation(FVector(-0.4f, 0.2f, -1.2f) + TotalMotionOffset);
+		FarmerRightHand->SetRelativeRotation(FRotator(0.0f, 8.0f, 0.0f) + TotalMotionRot);
+	}
+	if (FarmerLeftHand)
+	{
+		FarmerLeftHand->SetRelativeLocation(LeftHandAnimOffset + TotalMotionOffset);
+		FarmerLeftHand->SetRelativeRotation(LeftHandAnimRot + TotalMotionRot);
+	}
 
 	// 4. Update & decay the 3D muzzle flash flare at the barrel tip
 	if (MuzzleFlashTimeRemaining > 0.0f)
@@ -276,6 +392,8 @@ void AShooterWeapon::ActivateWeapon()
 	if (FirstPersonGunMesh && FirstPersonGunMesh->GetStaticMesh())
 	{
 		FirstPersonGunMesh->SetVisibility(true, true);
+		if (FarmerRightHand) { FarmerRightHand->SetVisibility(true, true); }
+		if (FarmerLeftHand)  { FarmerLeftHand->SetVisibility(true, true); }
 		if (FirstPersonMesh)
 		{
 			FirstPersonMesh->SetVisibility(false, false);
@@ -308,6 +426,8 @@ void AShooterWeapon::DeactivateWeapon()
 
 	// hide the weapon
 	SetActorHiddenInGame(true);
+	if (FarmerRightHand) { FarmerRightHand->SetVisibility(false, true); }
+	if (FarmerLeftHand)  { FarmerLeftHand->SetVisibility(false, true); }
 	MuzzleFlashTimeRemaining = 0.0f;
 	if (MuzzleFlashCoreMesh)  { MuzzleFlashCoreMesh->SetVisibility(false, true); }
 	if (MuzzleFlashCrossMesh) { MuzzleFlashCrossMesh->SetVisibility(false, false); }
@@ -928,6 +1048,31 @@ void AShooterWeapon::ConfigureCustomGunPackArchetype(
 	BaseGunRelativeLocation = InMeshOffset;
 	BaseGunRelativeRotation = InMeshRotation;
 	BaseGunRelativeScale = FVector(InUniformScale, InUniformScale, InUniformScale);
+
+	// Configure per-archetype Cubic Farmer left-hand grip & reload keyframes
+	// Local frame: +Y = forward along barrel, +X = left, +Z = up
+	bIsPistolArchetype = !bInFullAuto || InDisplayName.Contains(TEXT("M1911"), ESearchCase::IgnoreCase);
+	if (bIsPistolArchetype)
+	{
+		// Two-handed Weaver pistol grip: left hand cups the front/left side of the grip & trigger guard (not flat under mag!)
+		LeftHandRestOffset = FVector(1.8f, 3.2f, -1.0f);
+		LeftHandMagOffset  = FVector(0.5f, 0.8f, -5.8f);
+		LeftHandRackOffset = FVector(2.0f, 6.5f, 5.0f);
+	}
+	else if (InDisplayName.Contains(TEXT("MP5"), ESearchCase::IgnoreCase) || InDisplayName.Contains(TEXT("MP7"), ESearchCase::IgnoreCase))
+	{
+		// Compact SMG foregrip hold: left hand grips cleanly under the forward barrel shroud
+		LeftHandRestOffset = FVector(1.4f, 15.5f, 0.8f);
+		LeftHandMagOffset  = FVector(1.0f, 10.5f, -5.5f);
+		LeftHandRackOffset = FVector(2.5f, 12.0f, 5.5f);
+	}
+	else
+	{
+		// Assault Rifle / Battle Rifle handguard hold: left hand supports well forward under the handguard
+		LeftHandRestOffset = FVector(1.4f, 20.5f, 1.0f);
+		LeftHandMagOffset  = FVector(1.0f, 11.5f, -6.0f);
+		LeftHandRackOffset = FVector(2.5f, 8.5f, 5.5f);
+	}
 
 	if (UStaticMesh* LoadedGunMesh = LoadObject<UStaticMesh>(nullptr, *InStaticMeshPath))
 	{
