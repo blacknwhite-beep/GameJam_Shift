@@ -90,13 +90,17 @@ AShooterCharacter::AShooterCharacter()
 	{
 		TacticalFlashlight->SetupAttachment(RootComponent);
 	}
-	TacticalFlashlight->SetRelativeLocation(FVector(15.0f, 8.0f, -6.0f));
-	TacticalFlashlight->SetIntensityUnits(ELightUnits::Candelas);
-	TacticalFlashlight->SetIntensity(45.0f);
-	TacticalFlashlight->SetAttenuationRadius(2600.0f);
-	TacticalFlashlight->SetInnerConeAngle(14.0f);
-	TacticalFlashlight->SetOuterConeAngle(32.0f);
-	TacticalFlashlight->SetLightColor(FColor(235, 244, 255));
+	TacticalFlashlight->SetRelativeLocation(FVector(25.0f, 0.0f, -4.0f));
+	TacticalFlashlight->SetRelativeRotation(FRotator::ZeroRotator);
+	TacticalFlashlight->bUseInverseSquaredFalloff = false;
+	TacticalFlashlight->SetLightFalloffExponent(1.6f);
+	TacticalFlashlight->SetIntensityUnits(ELightUnits::Unitless);
+	TacticalFlashlight->SetIntensity(24.0f);
+	TacticalFlashlight->SetAttenuationRadius(6500.0f);
+	TacticalFlashlight->SetInnerConeAngle(18.0f);
+	TacticalFlashlight->SetOuterConeAngle(38.0f);
+	TacticalFlashlight->SetVolumetricScatteringIntensity(2.5f);
+	TacticalFlashlight->SetLightColor(FColor(238, 246, 255));
 	TacticalFlashlight->SetVisibility(false);
 
 	// default weapon input mapping context
@@ -116,6 +120,22 @@ void AShooterCharacter::BeginPlay()
 
 	// reset HP to max
 	CurrentHP = MaxHP;
+
+	// Enforce long-range tactical flashlight settings at runtime (overrides any stale Blueprint CDO values)
+	if (TacticalFlashlight)
+	{
+		TacticalFlashlight->SetRelativeLocation(FVector(25.0f, 0.0f, -4.0f));
+		TacticalFlashlight->SetRelativeRotation(FRotator::ZeroRotator);
+		TacticalFlashlight->bUseInverseSquaredFalloff = false;
+		TacticalFlashlight->SetLightFalloffExponent(1.6f);
+		TacticalFlashlight->SetIntensityUnits(ELightUnits::Unitless);
+		TacticalFlashlight->SetIntensity(24.0f);
+		TacticalFlashlight->SetAttenuationRadius(6500.0f);
+		TacticalFlashlight->SetInnerConeAngle(18.0f);
+		TacticalFlashlight->SetOuterConeAngle(38.0f);
+		TacticalFlashlight->SetVolumetricScatteringIntensity(2.5f);
+		TacticalFlashlight->SetLightColor(FColor(238, 246, 255));
+	}
 
 	// update the HUD
 	OnDamaged.Broadcast(1.0f);
