@@ -183,6 +183,18 @@ void AShooterCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// Advance the 24-hour day/night clock and update ONLY the Farm sun
+	if (IsPlayerControlled())
+	{
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				Sub->TickDayNightClock(GetWorld(), DeltaTime);
+			}
+		}
+	}
+
 	if (ShiftGlitchRemaining > 0.0f)
 	{
 		ShiftGlitchRemaining = FMath::Max(0.0f, ShiftGlitchRemaining - DeltaTime);
@@ -281,6 +293,10 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	// Barn Shop interaction (B key) & Plot placement cancel (Right Mouse Button)
 	PlayerInputComponent->BindKey(EKeys::B, IE_Pressed, this, &AShooterCharacter::InteractBarnShop);
 	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AShooterCharacter::CancelPlotPlacementInput);
+
+	// Developer Mode time-advance hotkey (+ / = and Numpad +)
+	PlayerInputComponent->BindKey(EKeys::Equals, IE_Pressed, this, &AShooterCharacter::DevAdvanceTimeInput);
+	PlayerInputComponent->BindKey(EKeys::Add, IE_Pressed, this, &AShooterCharacter::DevAdvanceTimeInput);
 
 }
 
@@ -561,6 +577,17 @@ void AShooterCharacter::CancelPlotPlacementInput()
 	if (CurrentDimension == EGameDimension::Farming && FarmingComponent && FarmingComponent->IsPlacingPlot())
 	{
 		FarmingComponent->CancelPlotPlacement();
+	}
+}
+
+void AShooterCharacter::DevAdvanceTimeInput()
+{
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Sub->AdvanceTimeByRealMinute(GetWorld());
+		}
 	}
 }
 

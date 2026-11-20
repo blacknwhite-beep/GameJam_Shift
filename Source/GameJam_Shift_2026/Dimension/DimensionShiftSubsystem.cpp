@@ -178,6 +178,8 @@ void UDimensionShiftSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	UnlockedWeaponSlots.Add(0); // Slot 0 (M1911 Classic) is always owned at the start
 	bIsStartMenuActive = true;
 	bHasDismissedStartMenu = false;
+	CurrentTimeOfDay = 6.0f; // Day begins at 06:00 AM (Farm Phase)
+	CurrentDay = 1;
 	PrototypeFarmPlatform.Reset();
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem initialized. Starting in Combat dimension with %d Gold and M1911 Classic."), CurrentGold);
 }
@@ -419,6 +421,21 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 	const bool bPhysicallyInCombat = (PlayerCharacter->GetActorLocation().Z > -10000.0f);
 	const EGameDimension TargetDimension = bPhysicallyInCombat ? EGameDimension::Farming : EGameDimension::Combat;
 
+	// Enforce 24-hour clock schedule for dimension shifting:
+	//   - 06:00 -> 24:00 (Farm Phase): Shifting to Combat is locked until 00:00 (12:00 AM).
+	//   - 00:00 -> 06:00 (Zombie Phase): Shifting to Combat is unlocked; shifting back to Farm unlocks at 06:00 AM.
+	if (!CanShiftToDimension(TargetDimension))
+	{
+		if (GEngine)
+		{
+			const FString LockMsg = (TargetDimension == EGameDimension::Combat)
+				? FString::Printf(TEXT("[SHIFT LOCKED] Stay on the Farm until 12:00 AM (00:00)! Current Time: %s"), *GetFormattedTime24H())
+				: FString::Printf(TEXT("[SHIFT LOCKED] Survive the Zombie Night until 06:00 AM! Current Time: %s"), *GetFormattedTime24H());
+			GEngine->AddOnScreenDebugMessage(9180, 3.5f, FColor::Orange, LockMsg);
+		}
+		return false;
+	}
+
 	// Destination safety and clearance check
 	FVector TargetLocation = FVector::ZeroVector;
 	if (!CanShiftSafely(PlayerCharacter->GetActorLocation(), TargetLocation, World))
@@ -461,6 +478,7 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 
 	// Swap sun / sky / fog to match the new dimension
 	ApplyDimensionLighting(World, CurrentDimension);
+	UpdateFarmSunForTimeOfDay(World);
 
 	// Broadcast event to notify audio, camera shake, visual effects, and UI
 	OnDimensionShifted.Broadcast(CurrentDimension, TargetLocation);
@@ -563,4 +581,165 @@ void UDimensionShiftSubsystem::SetDeveloperMode(bool bEnabled)
 	}
 	OnGoldChanged.Broadcast(CurrentGold, 0);
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("Settings: DeveloperMode %s"), bDeveloperMode ? TEXT("ENABLED") : TEXT("DISABLED"));
+}
+
+bool UDimensionShiftSubsystem::CanShiftToDimension(EGameDimension TargetDimension) const
+{
+	if (TargetDimension == EGameDimension::Combat)
+	{
+		// Entering the Zombie/Combat world unlocks at 12:00 AM (00:00 -> 06:00)
+		return IsNightWindow();
+	}
+	// Returning to the Farm world unlocks at 06:00 AM (06:00 -> 24:00)
+	return !IsNightWindow();
+}
+
+void UDimensionShiftSubsystem::TickDayNightClock(UWorld* World, float DeltaTime)
+{
+	if (!World || bIsStartMenuActive || DeltaTime <= 0.0f)
+	{
+		return;
+	}
+
+	const bool bWasNight = IsNightWindow();
+
+	// 06:00 -> 24:00 (18 in-game hours) = 5 real-time minutes (300s) => 0.060 in-game hours per real second
+	// 00:00 -> 06:00 (6 in-game hours)  = 3 real-time minutes (180s) => 0.03333 in-game hours per real second
+	const float HoursPerRealSecond = IsNightWindow() ? (6.0f / 180.0f) : (18.0f / 300.0f);
+	CurrentTimeOfDay += DeltaTime * HoursPerRealSecond;
+
+	if (CurrentTimeOfDay >= 24.0f)
+	{
+		CurrentTimeOfDay = FMath::Fmod(CurrentTimeOfDay, 24.0f);
+	}
+
+	const bool bNowNight = IsNightWindow();
+	if (bWasNight && !bNowNight)
+	{
+		++CurrentDay;
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(9181, 5.0f, FColor::Green,
+				FString::Printf(TEXT(">>> [06:00 AM - DAY %d] Dawn breaks! Press [LEFT SHIFT] to return to the Farm!"), CurrentDay));
+		}
+	}
+	else if (!bWasNight && bNowNight)
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(9181, 5.0f, FColor::Red,
+				TEXT(">>> [12:00 AM - MIDNIGHT] Zombie Night begins! Press [LEFT SHIFT] when ready to enter Combat!"));
+		}
+	}
+
+	UpdateFarmSunForTimeOfDay(World);
+}
+
+void UDimensionShiftSubsystem::AdvanceTimeByRealMinute(UWorld* WorldContext)
+{
+	if (!bDeveloperMode)
+	{
+		return;
+	}
+
+	UWorld* World = WorldContext ? WorldContext : GetWorld();
+	const bool bWasNight = IsNightWindow();
+
+	// Advance by the exact in-game equivalent of 1 real-time minute:
+	//   - During Farm phase (06:00 -> 24:00): 18h / 5 min = +3.6 in-game hours (3h 36m)
+	//   - During Night phase (00:00 -> 06:00): 6h / 3 min = +2.0 in-game hours
+	const float DeltaHours = bWasNight ? 2.0f : 3.6f;
+	CurrentTimeOfDay += DeltaHours;
+	if (CurrentTimeOfDay >= 24.0f)
+	{
+		CurrentTimeOfDay = FMath::Fmod(CurrentTimeOfDay, 24.0f);
+	}
+
+	const bool bNowNight = IsNightWindow();
+	if (bWasNight && !bNowNight)
+	{
+		++CurrentDay;
+	}
+
+	if (World)
+	{
+		UpdateFarmSunForTimeOfDay(World);
+	}
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(9182, 3.0f, FColor::Cyan,
+			FString::Printf(TEXT("[DEV TIME +1 MIN] Clock advanced to %s (%s)"), *GetFormattedTime24H(), *GetFormattedTime12H()));
+	}
+}
+
+void UDimensionShiftSubsystem::UpdateFarmSunForTimeOfDay(UWorld* World) const
+{
+	if (!World)
+	{
+		return;
+	}
+
+	// Find ONLY the Farm's DirectionalLight (tagged FarmWorldTag) — never touch Combat lights!
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (!It->ActorHasTag(FarmWorldTag))
+		{
+			continue;
+		}
+
+		if (UDirectionalLightComponent* SunComp = It->FindComponentByClass<UDirectionalLightComponent>())
+		{
+			// Map 06:00 -> 20:00 to a smooth sun arc across the sky (-8 deg sunrise -> -72 deg noon -> -172 deg sunset)
+			// and 20:00 -> 06:00 to cool twilight / moonlit farm evening so the farm feels late at night
+			float SunPitch = -24.0f;
+			float SunIntensity = 7.5f;
+			FColor SunColor(255, 224, 178);
+
+			if (CurrentTimeOfDay >= 6.0f && CurrentTimeOfDay < 20.0f)
+			{
+				const float DayAlpha = (CurrentTimeOfDay - 6.0f) / 14.0f; // 0.0 at 6am -> 0.5 at 1pm -> 1.0 at 8pm
+				SunPitch = FMath::Lerp(-10.0f, -170.0f, DayAlpha);
+				const float Elev = FMath::Sin(DayAlpha * PI); // 0 at horizon, 1 at midday
+				SunIntensity = FMath::Lerp(2.2f, 9.5f, Elev);
+
+				// Warm golden sunrise/sunset transitioning to crisp bright sunlight at midday
+				const uint8 G = static_cast<uint8>(FMath::Lerp(155.0f, 240.0f, Elev));
+				const uint8 B = static_cast<uint8>(FMath::Lerp(95.0f, 215.0f, Elev));
+				SunColor = FColor(255, G, B);
+			}
+			else
+			{
+				// Evening / Midnight on the Farm (20:00 -> 06:00): soft cool moonlight over the valley
+				const float NightT = (CurrentTimeOfDay >= 20.0f) ? ((CurrentTimeOfDay - 20.0f) / 10.0f) : ((CurrentTimeOfDay + 4.0f) / 10.0f);
+				SunPitch = FMath::Lerp(-16.0f, -52.0f, FMath::Sin(NightT * PI));
+				SunIntensity = 1.6f;
+				SunColor = FColor(135, 165, 225);
+			}
+
+			It->SetActorRotation(FRotator(SunPitch, -55.0f, 0.0f));
+			SunComp->SetIntensity(SunIntensity);
+			SunComp->SetLightColor(SunColor);
+			break;
+		}
+	}
+}
+
+FString UDimensionShiftSubsystem::GetFormattedTime24H() const
+{
+	const int32 TotalMinutes = FMath::FloorToInt(CurrentTimeOfDay * 60.0f) % (24 * 60);
+	const int32 Hours = TotalMinutes / 60;
+	const int32 Minutes = TotalMinutes % 60;
+	return FString::Printf(TEXT("%02d:%02d"), Hours, Minutes);
+}
+
+FString UDimensionShiftSubsystem::GetFormattedTime12H() const
+{
+	const int32 TotalMinutes = FMath::FloorToInt(CurrentTimeOfDay * 60.0f) % (24 * 60);
+	const int32 Hour24 = TotalMinutes / 60;
+	const int32 Minutes = TotalMinutes % 60;
+	const TCHAR* Suffix = (Hour24 >= 12) ? TEXT("PM") : TEXT("AM");
+	int32 Hour12 = Hour24 % 12;
+	if (Hour12 == 0) { Hour12 = 12; }
+	return FString::Printf(TEXT("%d:%02d %s"), Hour12, Minutes, Suffix);
 }

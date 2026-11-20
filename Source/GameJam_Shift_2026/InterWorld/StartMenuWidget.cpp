@@ -442,7 +442,7 @@ void UStartMenuWidget::NativeOnInitialized()
 	DevInfoCol->AddChildToVerticalBox(DevTitle);
 
 	UTextBlock* DevDesc = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("DevDesc"));
-	DevDesc->SetText(FText::FromString(TEXT("Unlocks all 7 weapons in the Radial Wheel & grants Infinite Gold")));
+	DevDesc->SetText(FText::FromString(TEXT("Unlocks all 7 weapons, Infinite Gold & [+] key to skip +1 min")));
 	DevDesc->SetColorAndOpacity(FSlateColor(FLinearColor(0.72f, 0.78f, 0.86f, 1.0f)));
 	{
 		FSlateFontInfo F = DevDesc->GetFont();

@@ -249,6 +249,9 @@ public:
 	/** Opens the Barn Shop if nearby in the Farming dimension */
 	void InteractBarnShop();
 
+	/** Developer Mode hotkey (+ / =): advances the 24-hour clock by 1 real-time minute equivalent */
+	void DevAdvanceTimeInput();
+
 	/** Cancels active Farm Plot placement preview */
 	void CancelPlotPlacementInput();
 

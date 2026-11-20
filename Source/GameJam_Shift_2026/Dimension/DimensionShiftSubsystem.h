@@ -175,6 +175,44 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	bool IsDeveloperModeEnabled() const { return bDeveloperMode; }
 
+	// -------------------------------------------------------------------------
+	// 24-Hour Day/Night Clock & Farm Sun Control
+	//   - 06:00 -> 24:00 (18 in-game hrs) = 5 real-time minutes (300s) -> Farm Phase
+	//   - 00:00 -> 06:00 (6 in-game hrs)  = 3 real-time minutes (180s) -> Combat/Zombie Phase
+	// -------------------------------------------------------------------------
+
+	/** Current 24-hour clock time in hours [0.0, 24.0). Starts at 06:00 (6.0f). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time")
+	float CurrentTimeOfDay = 6.0f;
+
+	/** Current day counter (starts at Day 1). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Time")
+	int32 CurrentDay = 1;
+
+	/** Advances the 24-hour clock by DeltaTime seconds and rotates ONLY the Farm sun (never Combat lighting). */
+	void TickDayNightClock(UWorld* World, float DeltaTime);
+
+	/** Advances the clock by the equivalent of 1 real-time minute (Developer Mode [+] hotkey). */
+	UFUNCTION(BlueprintCallable, Category = "Time")
+	void AdvanceTimeByRealMinute(UWorld* WorldContext = nullptr);
+
+	/** Returns true if the clock is currently in the Night/Zombie window [00:00, 06:00). */
+	UFUNCTION(BlueprintPure, Category = "Time")
+	bool IsNightWindow() const { return CurrentTimeOfDay < 6.0f; }
+
+	/** Returns true if the player is currently allowed to Shift to TargetDimension based on the 24h clock. */
+	UFUNCTION(BlueprintPure, Category = "Time")
+	bool CanShiftToDimension(EGameDimension TargetDimension) const;
+
+	/** Updates the Farm DirectionalLight rotation, intensity, and color to match CurrentTimeOfDay (never touches Combat). */
+	void UpdateFarmSunForTimeOfDay(UWorld* World) const;
+
+	/** Returns formatted 24-hour string like "06:00" or "23:45". */
+	FString GetFormattedTime24H() const;
+
+	/** Returns formatted 12-hour string like "6:00 AM" or "12:00 AM". */
+	FString GetFormattedTime12H() const;
+
 private:
 	/** Set of unlocked weapon slot indices (Slot 0 = M1911 Classic is unlocked by default). */
 	TSet<int32> UnlockedWeaponSlots;
