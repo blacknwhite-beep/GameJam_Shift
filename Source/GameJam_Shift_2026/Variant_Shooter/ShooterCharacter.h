@@ -10,6 +10,7 @@
 
 class AShooterWeapon;
 class AFarmBedActor;
+class UAnimSequence;
 class UInputAction;
 class UInputMappingContext;
 class UInputComponent;
@@ -152,6 +153,45 @@ protected:
 
 	/** The bed the player is currently lying in */
 	TWeakObjectPtr<AFarmBedActor> ActiveBed;
+
+	/** Animated Cubic Low-Poly Farmer character state & sequences */
+	bool bUsingFarmerMesh = false;
+	bool bIsThirdPersonView = false;
+	float FarmerOneShotRemaining = 0.0f;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> CurrentFarmerAnim;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> FarmerAnim_Idle;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> FarmerAnim_IdleCombat;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> FarmerAnim_Walk;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> FarmerAnim_Run;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> FarmerAnim_WorkHoe;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> FarmerAnim_GrabLow;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> FarmerAnim_HitReact;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> FarmerAnim_Death;
+
+	void InitializeFarmerCharacterMesh();
+	void UpdateFarmerAnimation(float DeltaTime);
+	void PlayFarmerOneShotAnim(UAnimSequence* Anim, float PlayRate = 1.0f);
+
+	/** Toggles between First-Person and Third-Person camera [V] to view the full Animated Farmer */
+	void ToggleThirdPersonView();
 
 	UPROPERTY(EditAnywhere, Category ="Destruction", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
 	float RespawnTime = 5.0f;

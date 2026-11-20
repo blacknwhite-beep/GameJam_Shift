@@ -24,6 +24,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AnimSequence.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "Camera/CameraComponent.h"
@@ -143,6 +144,9 @@ void AShooterCharacter::BeginPlay()
 	// Spawn all 7 Gun Pack weapons into the 7-slot radial weapon wheel (no purchasing restrictions)
 	SpawnAllGunPackWeapons();
 
+	// Apply the Animated Cubic Low-Poly Farmer as the main character body mesh & load animations
+	InitializeFarmerCharacterMesh();
+
 	// Register with DimensionShiftSubsystem
 	if (UGameInstance* GI = GetGameInstance())
 	{
@@ -221,6 +225,9 @@ void AShooterCharacter::Tick(float DeltaTime)
 			}
 		}
 	}
+
+	// Update Animated Cubic Farmer locomotion & camera
+	UpdateFarmerAnimation(DeltaTime);
 
 	if (ShiftGlitchRemaining > 0.0f)
 	{
@@ -325,6 +332,9 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindKey(EKeys::Equals, IE_Pressed, this, &AShooterCharacter::DevAdvanceTimeInput);
 	PlayerInputComponent->BindKey(EKeys::Add, IE_Pressed, this, &AShooterCharacter::DevAdvanceTimeInput);
 
+	// Toggle First-Person / Third-Person view (V key) to admire the Animated Farmer character
+	PlayerInputComponent->BindKey(EKeys::V, IE_Pressed, this, &AShooterCharacter::ToggleThirdPersonView);
+
 }
 
 float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -354,6 +364,10 @@ float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 		if (APlayerController* PC = Cast<APlayerController>(GetController()))
 		{
 			PC->ClientStartCameraShake(UHitCameraShake::StaticClass(), 1.0f);
+		}
+		if (bUsingFarmerMesh && CurrentHP > 0.0f && FarmerAnim_HitReact)
+		{
+			PlayFarmerOneShotAnim(FarmerAnim_HitReact, 1.25f);
 		}
 	}
 
@@ -474,6 +488,18 @@ void AShooterCharacter::DoStartFiring()
 
 		if (FarmingComponent)
 		{
+			if (bUsingFarmerMesh)
+			{
+				const EFarmTool Tool = FarmingComponent->ActiveTool;
+				if (Tool == EFarmTool::Harvester && FarmerAnim_GrabLow)
+				{
+					PlayFarmerOneShotAnim(FarmerAnim_GrabLow, 1.35f);
+				}
+				else if (FarmerAnim_WorkHoe)
+				{
+					PlayFarmerOneShotAnim(FarmerAnim_WorkHoe, 1.35f);
+				}
+			}
 			FarmingComponent->UseActiveTool();
 		}
 		return;
@@ -654,6 +680,11 @@ void AShooterCharacter::EnterBedSleep(AFarmBedActor* Bed, bool bIsWakingMorning)
 	if (!Bed || !Camera || !MoveComp || !Capsule || !PC || bIsSleepingInBed)
 	{
 		return;
+	}
+
+	if (bIsThirdPersonView)
+	{
+		ToggleThirdPersonView();
 	}
 
 	PreSleepLocation = GetActorLocation();
@@ -1016,7 +1047,7 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 			{
 				GetFirstPersonMesh()->SetAnimInstanceClass(CurrentWeapon->GetFirstPersonAnimInstanceClass());
 			}
-			if (GetMesh())
+			if (GetMesh() && !bUsingFarmerMesh)
 			{
 				GetMesh()->SetAnimInstanceClass(CurrentWeapon->GetThirdPersonAnimInstanceClass());
 			}
@@ -1166,7 +1197,10 @@ void AShooterCharacter::OnWeaponActivated(AShooterWeapon* Weapon)
 
 	// set the character mesh AnimInstances
 	GetFirstPersonMesh()->SetAnimInstanceClass(Weapon->GetFirstPersonAnimInstanceClass());
-	GetMesh()->SetAnimInstanceClass(Weapon->GetThirdPersonAnimInstanceClass());
+	if (!bUsingFarmerMesh)
+	{
+		GetMesh()->SetAnimInstanceClass(Weapon->GetThirdPersonAnimInstanceClass());
+	}
 }
 
 void AShooterCharacter::OnWeaponDeactivated(AShooterWeapon* Weapon)
@@ -1204,7 +1238,15 @@ void AShooterCharacter::Die()
 	}
 	if (GetMesh())
 	{
-		GetMesh()->SetAnimInstanceClass(nullptr);
+		if (bUsingFarmerMesh && FarmerAnim_Death)
+		{
+			GetMesh()->PlayAnimation(FarmerAnim_Death, false);
+			CurrentFarmerAnim = FarmerAnim_Death;
+		}
+		else
+		{
+			GetMesh()->SetAnimInstanceClass(nullptr);
+		}
 	}
 
 	// deactivate the weapon
@@ -1680,4 +1722,196 @@ void AShooterCharacter::Heal(float Amount)
 void AShooterCharacter::UseMedkit()
 {
 	UInterWorldBridge::UseMedkitFromInventory(this, 50.0f);
+}
+
+void AShooterCharacter::InitializeFarmerCharacterMesh()
+{
+	USkeletalMeshComponent* BodyMesh = GetMesh();
+	if (!BodyMesh)
+	{
+		return;
+	}
+
+	USkeletalMesh* FarmerMesh = LoadObject<USkeletalMesh>(nullptr, TEXT("/Game/3D_LOW_POLY_FarmerPack/Characters/Mesh/SKM_Farmer_male.SKM_Farmer_male"));
+	if (!FarmerMesh)
+	{
+		return;
+	}
+
+	bUsingFarmerMesh = true;
+
+	// Save the default First-Person camera transform for [V] Third-Person toggle
+	if (UCameraComponent* Camera = GetFirstPersonCameraComponent())
+	{
+		DefaultCameraRelLocation = Camera->GetRelativeLocation();
+		DefaultCameraRelRotation = Camera->GetRelativeRotation();
+		bSavedUsePawnControlRotation = Camera->bUsePawnControlRotation;
+	}
+
+	// Swap the main character body mesh to the Animated Low-Poly Cubic Farmer
+	BodyMesh->SetAnimInstanceClass(nullptr);
+	BodyMesh->SetSkeletalMeshAsset(FarmerMesh);
+	BodyMesh->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -96.0f), FRotator(0.0f, -90.0f, 0.0f));
+	BodyMesh->SetOwnerNoSee(false);
+	BodyMesh->SetCastShadow(true);
+	BodyMesh->bCastHiddenShadow = true;
+	BodyMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+
+	// Hide only the head bone in First-Person so the player sees their Farmer body/legs/overalls & shadow without head clipping
+	BodyMesh->HideBoneByName(FName("head"), PBO_None);
+
+	// Load the Farmer animation sequences from the pack
+	const TCHAR* AnimBase = TEXT("/Game/3D_LOW_POLY_FarmerPack/Animations/Farmer/");
+	FarmerAnim_Idle       = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_idle_basic.anim_Farmer_idle_basic"), AnimBase));
+	FarmerAnim_IdleCombat = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_idle_combat.anim_Farmer_idle_combat"), AnimBase));
+	FarmerAnim_Walk       = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_walk.anim_Farmer_walk"), AnimBase));
+	FarmerAnim_Run        = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_run.anim_Farmer_run"), AnimBase));
+	FarmerAnim_WorkHoe    = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_work_Hoe.anim_Farmer_work_Hoe"), AnimBase));
+	FarmerAnim_GrabLow    = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_grab_low.anim_Farmer_grab_low"), AnimBase));
+	FarmerAnim_HitReact   = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_hit_reaction.anim_Farmer_hit_reaction"), AnimBase));
+	FarmerAnim_Death      = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_death.anim_Farmer_death"), AnimBase));
+
+	if (FarmerAnim_Idle)
+	{
+		BodyMesh->PlayAnimation(FarmerAnim_Idle, true);
+		CurrentFarmerAnim = FarmerAnim_Idle;
+	}
+
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("ShooterCharacter: Equipped Animated Cubic Farmer (SKM_Farmer_male) as main character."));
+}
+
+void AShooterCharacter::PlayFarmerOneShotAnim(UAnimSequence* Anim, float PlayRate)
+{
+	USkeletalMeshComponent* BodyMesh = GetMesh();
+	if (!bUsingFarmerMesh || !BodyMesh || !Anim || IsDead())
+	{
+		return;
+	}
+
+	BodyMesh->PlayAnimation(Anim, false);
+	BodyMesh->SetPlayRate(PlayRate);
+	CurrentFarmerAnim = Anim;
+	FarmerOneShotRemaining = FMath::Max(0.25f, Anim->GetPlayLength() / FMath::Max(0.25f, PlayRate));
+}
+
+void AShooterCharacter::UpdateFarmerAnimation(float DeltaTime)
+{
+	// Update Third-Person shoulder camera if active (never interfere with bed sleep)
+	if (bIsThirdPersonView && !bIsSleepingInBed)
+	{
+		if (UCameraComponent* Camera = GetFirstPersonCameraComponent())
+		{
+			if (APlayerController* PC = Cast<APlayerController>(GetController()))
+			{
+				const FRotator ViewRot = PC->GetControlRotation();
+				const FVector Pivot = GetActorLocation() + FVector(0.0f, 0.0f, 68.0f);
+				const FVector DesiredPos = Pivot - ViewRot.Vector() * 260.0f + FRotationMatrix(ViewRot).GetUnitAxis(EAxis::Y) * 28.0f;
+
+				FVector FinalPos = DesiredPos;
+				FHitResult CamHit;
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(FarmerThirdPersonCam), false);
+				Params.AddIgnoredActor(this);
+				if (GetWorld() && GetWorld()->LineTraceSingleByChannel(CamHit, Pivot, DesiredPos, ECC_Camera, Params))
+				{
+					FinalPos = CamHit.ImpactPoint + (Pivot - DesiredPos).GetSafeNormal() * 14.0f;
+				}
+
+				Camera->SetUsingAbsoluteLocation(true);
+				Camera->SetUsingAbsoluteRotation(true);
+				Camera->SetWorldLocationAndRotation(FinalPos, ViewRot);
+			}
+		}
+	}
+
+	USkeletalMeshComponent* BodyMesh = GetMesh();
+	if (!bUsingFarmerMesh || !BodyMesh || IsDead())
+	{
+		return;
+	}
+
+	if (FarmerOneShotRemaining > 0.0f)
+	{
+		FarmerOneShotRemaining -= DeltaTime;
+		if (FarmerOneShotRemaining > 0.0f)
+		{
+			return;
+		}
+		CurrentFarmerAnim = nullptr;
+	}
+
+	const float GroundSpeed = GetVelocity().Size2D();
+	UAnimSequence* DesiredAnim = nullptr;
+	float PlayRate = 1.0f;
+
+	if (GroundSpeed > 380.0f && FarmerAnim_Run)
+	{
+		DesiredAnim = FarmerAnim_Run;
+		PlayRate = FMath::Clamp(GroundSpeed / 450.0f, 0.85f, 1.35f);
+	}
+	else if (GroundSpeed > 25.0f && FarmerAnim_Walk)
+	{
+		DesiredAnim = FarmerAnim_Walk;
+		PlayRate = FMath::Clamp(GroundSpeed / 260.0f, 0.8f, 1.45f);
+	}
+	else
+	{
+		DesiredAnim = (CurrentDimension == EGameDimension::Combat && FarmerAnim_IdleCombat)
+			? FarmerAnim_IdleCombat
+			: FarmerAnim_Idle;
+	}
+
+	if (DesiredAnim && CurrentFarmerAnim != DesiredAnim)
+	{
+		BodyMesh->PlayAnimation(DesiredAnim, true);
+		CurrentFarmerAnim = DesiredAnim;
+	}
+	if (DesiredAnim)
+	{
+		BodyMesh->SetPlayRate(PlayRate);
+	}
+}
+
+void AShooterCharacter::ToggleThirdPersonView()
+{
+	if (!bUsingFarmerMesh || bIsSleepingInBed || IsDead())
+	{
+		return;
+	}
+
+	bIsThirdPersonView = !bIsThirdPersonView;
+
+	if (USkeletalMeshComponent* BodyMesh = GetMesh())
+	{
+		if (bIsThirdPersonView)
+		{
+			BodyMesh->UnHideBoneByName(FName("head"));
+		}
+		else
+		{
+			BodyMesh->HideBoneByName(FName("head"), PBO_None);
+		}
+	}
+
+	if (UCameraComponent* Camera = GetFirstPersonCameraComponent())
+	{
+		if (bIsThirdPersonView)
+		{
+			Camera->bUsePawnControlRotation = false;
+			Camera->SetUsingAbsoluteLocation(true);
+			Camera->SetUsingAbsoluteRotation(true);
+		}
+		else
+		{
+			Camera->SetUsingAbsoluteLocation(false);
+			Camera->SetUsingAbsoluteRotation(false);
+			Camera->SetRelativeLocationAndRotation(DefaultCameraRelLocation, DefaultCameraRelRotation);
+			Camera->bUsePawnControlRotation = bSavedUsePawnControlRotation;
+		}
+	}
+
+	if (GetFirstPersonMesh())
+	{
+		const bool bShowFPArms = (!bIsThirdPersonView && CurrentDimension == EGameDimension::Combat);
+		GetFirstPersonMesh()->SetVisibility(bShowFPArms, false);
+	}
 }
