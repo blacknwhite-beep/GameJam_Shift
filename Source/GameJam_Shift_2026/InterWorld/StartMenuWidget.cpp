@@ -625,8 +625,17 @@ void UStartMenuWidget::SpawnSplitScreenCameras()
 	// 2. Spawn Top Half Farm SceneCapture Actor + Warm Golden Fill Lights so the Farm is bright even while Combat lighting is active
 	if (!FarmCaptureActor)
 	{
-		const FVector InitialFarmCamLoc(550.0f, 820.0f, -19550.0f);
-		const FVector FarmLookAt(-150.0f, -1200.0f, -19820.0f);
+		FVector FarmOrigin(500000.0f, 0.0f, -20000.0f);
+		if (UGameInstance* GI = World->GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				FarmOrigin = Sub->FarmWorldOffset;
+			}
+		}
+
+		const FVector InitialFarmCamLoc = FarmOrigin + FVector(550.0f, 820.0f, 450.0f);
+		const FVector FarmLookAt = FarmOrigin + FVector(-150.0f, -1200.0f, 180.0f);
 		const FRotator InitialFarmRot = UKismetMathLibrary::FindLookAtRotation(InitialFarmCamLoc, FarmLookAt);
 
 		FarmCaptureActor = World->SpawnActor<AActor>(AActor::StaticClass(), InitialFarmCamLoc, InitialFarmRot, Params);
@@ -679,7 +688,7 @@ void UStartMenuWidget::SpawnSplitScreenCameras()
 				WarmLight->SetLightColor(FColor(255, 224, 170));
 				WarmLight->SetCastShadows(false);
 				WarmLight->RegisterComponent();
-				WarmLight->SetWorldLocation(FVector(0.0f, 0.0f, -20000.0f) + LightOffsets[i]);
+				WarmLight->SetWorldLocation(FarmOrigin + LightOffsets[i]);
 			}
 
 			// Add a warm blue sky-dome fill light high above the Farm valley so grass and hills are brightly lit
@@ -691,9 +700,9 @@ void UStartMenuWidget::SpawnSplitScreenCameras()
 			SkyDomeFill->SetLightColor(FColor(195, 225, 255));
 			SkyDomeFill->SetCastShadows(false);
 			SkyDomeFill->RegisterComponent();
-			SkyDomeFill->SetWorldLocation(FVector(0.0f, -1000.0f, -17200.0f));
+			SkyDomeFill->SetWorldLocation(FarmOrigin + FVector(0.0f, -1000.0f, 2800.0f));
 
-			// Add a distant sky backdrop plane behind the Barn & Hills at Z = -20,000 so with Atmosphere disabled the sky above the hills is warm golden-blue
+			// Add a distant sky backdrop plane behind the Barn & Hills so with Atmosphere disabled the sky above the hills is warm golden-blue
 			if (UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")))
 			{
 				UStaticMeshComponent* SkyBackdrop = NewObject<UStaticMeshComponent>(FarmCaptureActor, TEXT("MenuFarmSkyBackdrop"));
@@ -711,7 +720,7 @@ void UStartMenuWidget::SpawnSplitScreenCameras()
 					}
 				}
 				SkyBackdrop->RegisterComponent();
-				SkyBackdrop->SetWorldLocationAndRotation(FVector(-1200.0f, -8500.0f, -17500.0f), FRotator(0.0f, 15.0f, 0.0f));
+				SkyBackdrop->SetWorldLocationAndRotation(FarmOrigin + FVector(-1200.0f, -8500.0f, 2500.0f), FRotator(0.0f, 15.0f, 0.0f));
 				SkyBackdrop->SetWorldScale3D(FVector(240.0f, 1.0f, 80.0f));
 			}
 		}
@@ -820,13 +829,25 @@ void UStartMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 	// 1. Gently pan the Top Half Farm Camera across the Crop Plots, Red Barn, Silo & Trees
 	if (FarmCaptureActor)
 	{
+		FVector FarmOrigin(500000.0f, 0.0f, -20000.0f);
+		if (UWorld* World = GetWorld())
+		{
+			if (UGameInstance* GI = World->GetGameInstance())
+			{
+				if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+				{
+					FarmOrigin = Sub->FarmWorldOffset;
+				}
+			}
+		}
+
 		const float Angle = MenuElapsedSeconds * 0.22f;
-		const FVector CamPos(
+		const FVector CamPos = FarmOrigin + FVector(
 			420.0f + FMath::Sin(Angle) * 380.0f,
 			640.0f + FMath::Cos(Angle * 0.7f) * 260.0f,
-			-19580.0f + FMath::Sin(Angle * 0.5f) * 55.0f
+			420.0f + FMath::Sin(Angle * 0.5f) * 55.0f
 		);
-		const FVector TargetLook(-220.0f, -1350.0f, -19820.0f);
+		const FVector TargetLook = FarmOrigin + FVector(-220.0f, -1350.0f, 180.0f);
 		FarmCaptureActor->SetActorLocationAndRotation(CamPos, UKismetMathLibrary::FindLookAtRotation(CamPos, TargetLook));
 
 		// Re-anchor fill lights in world space above the Farm Valley so they don't drift with the panning camera
@@ -843,17 +864,17 @@ void UStartMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 		{
 			if (i < 5)
 			{
-				Lights[i]->SetWorldLocation(FVector(0.0f, 0.0f, -20000.0f) + LightOffsets[i]);
+				Lights[i]->SetWorldLocation(FarmOrigin + LightOffsets[i]);
 			}
 			else
 			{
-				Lights[i]->SetWorldLocation(FVector(0.0f, -1000.0f, -17200.0f));
+				Lights[i]->SetWorldLocation(FarmOrigin + FVector(0.0f, -1000.0f, 2800.0f));
 			}
 		}
 
 		if (UStaticMeshComponent* SkyBackdrop = FarmCaptureActor->FindComponentByClass<UStaticMeshComponent>())
 		{
-			SkyBackdrop->SetWorldLocationAndRotation(FVector(-1200.0f, -8500.0f, -17500.0f), FRotator(0.0f, 15.0f, 0.0f));
+			SkyBackdrop->SetWorldLocationAndRotation(FarmOrigin + FVector(-1200.0f, -8500.0f, 2500.0f), FRotator(0.0f, 15.0f, 0.0f));
 		}
 	}
 

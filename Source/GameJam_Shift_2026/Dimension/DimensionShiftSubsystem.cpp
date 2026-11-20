@@ -91,7 +91,7 @@ namespace
 }
 
 UDimensionShiftSubsystem::UDimensionShiftSubsystem()
-	: FarmWorldOffset(0.0f, 0.0f, -20000.0f)
+	: FarmWorldOffset(500000.0f, 0.0f, -20000.0f)
 	, ShiftCooldown(0.5f)
 	, bRequireGroundCheck(true)
 	, CurrentDimension(EGameDimension::Combat)
@@ -144,7 +144,7 @@ void UDimensionShiftSubsystem::HandleFarmLevelShown()
 		UWorld* World = FarmLevelStreaming->GetWorld();
 		ApplyDimensionLighting(World, CurrentDimension);
 
-		// Ensure Barn Shop counter exists at the Barn front entrance (-700, -2780, -20000)
+		// Ensure Barn Shop counter exists at the Barn front entrance (relative to FarmWorldOffset)
 		if (World)
 		{
 			TArray<AActor*> Shops;
@@ -153,7 +153,7 @@ void UDimensionShiftSubsystem::HandleFarmLevelShown()
 			{
 				FActorSpawnParameters Params;
 				Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-				World->SpawnActor<ABarnShopActor>(ABarnShopActor::StaticClass(), FVector(-700.0f, -2780.0f, -20000.0f), FRotator::ZeroRotator, Params);
+				World->SpawnActor<ABarnShopActor>(ABarnShopActor::StaticClass(), FarmWorldOffset + FVector(-700.0f, -2780.0f, 0.0f), FRotator::ZeroRotator, Params);
 				UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned ABarnShopActor at Barn entrance."));
 			}
 
@@ -164,7 +164,7 @@ void UDimensionShiftSubsystem::HandleFarmLevelShown()
 			{
 				FActorSpawnParameters Params;
 				Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-				World->SpawnActor<AFarmHouseActor>(AFarmHouseActor::StaticClass(), FVector(-1950.0f, -3150.0f, -20000.0f), FRotator::ZeroRotator, Params);
+				World->SpawnActor<AFarmHouseActor>(AFarmHouseActor::StaticClass(), FarmWorldOffset + FVector(-1950.0f, -3150.0f, 0.0f), FRotator::ZeroRotator, Params);
 				UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned AFarmHouseActor beside the Barn."));
 			}
 		}
@@ -278,13 +278,13 @@ void UDimensionShiftSubsystem::EnsurePrototypeFarmPlatform(UWorld* World) const
 		return;
 	}
 
-	// Check if any floor already exists around Z = -20000
+	// Check if any floor already exists around FarmWorldOffset
 	FHitResult FloorHit;
 	FCollisionQueryParams CheckParams(SCENE_QUERY_STAT(FarmFloorPreCheck), false);
 	const bool bHasFloor = World->LineTraceSingleByChannel(
 		FloorHit,
-		FVector(0.0f, 0.0f, -19000.0f),
-		FVector(0.0f, 0.0f, -21000.0f),
+		FarmWorldOffset + FVector(0.0f, 0.0f, 1000.0f),
+		FarmWorldOffset + FVector(0.0f, 0.0f, -1000.0f),
 		ECC_WorldStatic,
 		CheckParams
 	);
@@ -297,8 +297,8 @@ void UDimensionShiftSubsystem::EnsurePrototypeFarmPlatform(UWorld* World) const
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	// Center at Z = -20050.0f. With Cube thickness 100, the top surface is exactly Z = -20000.0f.
-	const FVector PlatformLoc(0.0f, 0.0f, -20050.0f);
+	// Center at FarmWorldOffset.Z - 50.0f. With Cube thickness 100, the top surface is exactly FarmWorldOffset.Z.
+	const FVector PlatformLoc = FarmWorldOffset + FVector(0.0f, 0.0f, -50.0f);
 	AStaticMeshActor* Platform = World->SpawnActor<AStaticMeshActor>(AStaticMeshActor::StaticClass(), PlatformLoc, FRotator::ZeroRotator, SpawnParams);
 	if (Platform)
 	{
@@ -329,9 +329,9 @@ void UDimensionShiftSubsystem::EnsurePrototypeFarmPlatform(UWorld* World) const
 	if (ExistingPlots.Num() == 0)
 	{
 		const FVector PlotLocations[] = {
-			FVector(250.0f, -200.0f, -20000.0f),
-			FVector(250.0f, 0.0f, -20000.0f),
-			FVector(250.0f, 200.0f, -20000.0f)
+			FarmWorldOffset + FVector(250.0f, -200.0f, 0.0f),
+			FarmWorldOffset + FVector(250.0f, 0.0f, 0.0f),
+			FarmWorldOffset + FVector(250.0f, 200.0f, 0.0f)
 		};
 
 		for (int32 i = 0; i < 3; ++i)
@@ -669,7 +669,7 @@ bool UDimensionShiftSubsystem::TeleportToFarmStart(ACharacter* PlayerCharacter)
 	EnsurePrototypeFarmPlatform(World);
 
 	// Scenic farm arrival spot between the Farmhouse & Barn, facing +Y toward the crop field
-	FVector StartLocation(-700.0f, -2100.0f, FarmWorldOffset.Z + 98.0f);
+	FVector StartLocation = FarmWorldOffset + FVector(-700.0f, -2100.0f, 98.0f);
 	FHitResult GroundHit;
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(FarmStartGroundTrace), false);
 	if (World->LineTraceSingleByChannel(
