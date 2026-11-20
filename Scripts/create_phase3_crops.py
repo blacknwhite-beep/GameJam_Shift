@@ -339,7 +339,7 @@ def upgrade_farm_level_plots():
     herb_cls = unreal.load_object(None, f"{CROPS_DIR}/BP_Crop_MedHerb.BP_Crop_MedHerb_C")
     fallback_cls = unreal.load_class(None, "/Script/GameJam_Shift_2026.FarmPlotBase")
 
-    palette = [corn_cls or fallback_cls, wheat_cls or fallback_cls, herb_cls or fallback_cls, fallback_cls]
+    palette = [corn_cls or fallback_cls, wheat_cls or fallback_cls, herb_cls or fallback_cls, corn_cls or fallback_cls]
     coords.sort(key=lambda item: (item[0].x, item[0].y))
     for idx, (loc, label) in enumerate(coords):
         row_cls = palette[(idx // 4) % len(palette)]

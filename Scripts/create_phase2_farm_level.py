@@ -310,15 +310,20 @@ def build_field_and_plots(m):
     place(CUBE, (700.0, 0.0, 1.2), (12.4, 11.4, 0.04), m["soil_dry"], "Field_SoilBed", f, collision=False)
     for x in xs:
         place(CUBE, (x, 0.0, 3.0), (1.6, 10.4, 0.06), m["soil_tilled"], "Field_TilledRow", f, collision=False)
-    plot_cls = unreal.load_class(None, "/Script/GameJam_Shift_2026.FarmPlotBase")
+    corn_cls = unreal.load_object(None, "/Game/Dev_Blueprint/Crops/BP_Crop_ShotgunCorn.BP_Crop_ShotgunCorn_C")
+    wheat_cls = unreal.load_object(None, "/Game/Dev_Blueprint/Crops/BP_Crop_RifleWheat.BP_Crop_RifleWheat_C")
+    herb_cls = unreal.load_object(None, "/Game/Dev_Blueprint/Crops/BP_Crop_MedHerb.BP_Crop_MedHerb_C")
+    fallback_cls = unreal.load_class(None, "/Script/GameJam_Shift_2026.FarmPlotBase")
+    plot_palette = [corn_cls or fallback_cls, wheat_cls or fallback_cls, herb_cls or fallback_cls, corn_cls or fallback_cls]
     count = 0
     for r, x in enumerate(xs):
+        row_cls = plot_palette[r % len(plot_palette)]
         for c, y in enumerate(ys):
-            plot = actor_sub.spawn_actor_from_class(plot_cls, unreal.Vector(x, y, 0.0), unreal.Rotator(0, 0, 0))
+            plot = actor_sub.spawn_actor_from_class(row_cls, unreal.Vector(x, y, 0.0), unreal.Rotator(0, 0, 0))
             plot.set_actor_label(f"FarmPlot_R{r + 1}_C{c + 1}")
             plot.set_folder_path(f"{f}/Plots")
             count += 1
-    log(f"Placed {count} FarmPlotBase actors")
+    log(f"Placed {count} textured crop plots")
 
     # Fence around the field (entrance gap facing the path on the -X side)
     ff = "Farm/Fences"
