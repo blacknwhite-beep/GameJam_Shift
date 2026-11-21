@@ -1,6 +1,7 @@
 // Copyright GameJam Shift 2026. All Rights Reserved.
 
 #include "Variant_Shooter/AI/ZombieEnemy.h"
+#include "Variant_Shooter/AI/ZombieAnimInstance.h"
 #include "AIController.h"
 #include "DimensionShiftSubsystem.h"
 #include "ShooterGameMode.h"
@@ -74,7 +75,8 @@ void AZombieEnemy::BeginPlay()
 	{
 		SkelMesh->SetRelativeLocation(FVector(0.0f, 0.0f, -HalfHeight));
 		SkelMesh->SetRelativeRotation(FRotator(0.0f, MeshYawOffset, 0.0f));
-		SkelMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		SkelMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+		SkelMesh->SetAnimInstanceClass(UZombieAnimInstance::StaticClass());
 
 		ZombieWoundMIDs.Reset();
 		const int32 NumMats = SkelMesh->GetNumMaterials();
@@ -98,115 +100,19 @@ void AZombieEnemy::BeginPlay()
 	if (!AttackAnim) { AttackAnim = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Dev_Blueprint/Characters/Zombie/Animations/Anim_Zombie_atack1.Anim_Zombie_atack1")); }
 	if (!DeathAnim)  { DeathAnim = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Dev_Blueprint/Characters/Zombie/Animations/Anim_Zombie_death1.Anim_Zombie_death1")); }
 
-	if (IdleAnim && GetMesh())
+	if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
 	{
-		GetMesh()->PlayAnimation(IdleAnim, true);
-		CurrentLoopAnim = IdleAnim;
-	}
-
-	// Register post-animation bone callback so Zombie_Head & Zombie_Neck always look toward the player (even while crawling!)
-	if (USkeletalMeshComponent* SkelMesh = GetMesh())
-	{
-		BoneFinalizedHandle = SkelMesh->RegisterOnBoneTransformsFinalizedDelegate(
-			FOnBoneTransformsFinalizedMultiCast::FDelegate::CreateUObject(this, &AZombieEnemy::ApplyHeadLookAtPlayer));
-	}
-}
-
-void AZombieEnemy::EndPlay(const EEndPlayReason::Type EndPlayReason)
-{
-	if (USkeletalMeshComponent* SkelMesh = GetMesh())
-	{
-		if (BoneFinalizedHandle.IsValid())
+		if (IdleAnim)
 		{
-			SkelMesh->UnregisterOnBoneTransformsFinalizedDelegate(BoneFinalizedHandle);
-			BoneFinalizedHandle.Reset();
+			ZAnim->PlayZombieSequence(IdleAnim, true, 1.0f);
+			CurrentLoopAnim = IdleAnim;
 		}
 	}
-	Super::EndPlay(EndPlayReason);
 }
 
-void AZombieEnemy::ApplyHeadLookAtPlayer()
+UZombieAnimInstance* AZombieEnemy::GetZombieAnimInstance() const
 {
-	if (bIsDead || bHeadSevered)
-	{
-		return;
-	}
-
-	USkeletalMeshComponent* SkelMesh = GetMesh();
-	UWorld* World = GetWorld();
-	if (!SkelMesh || !World)
-	{
-		return;
-	}
-
-	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(World, 0);
-	if (!PlayerPawn || PlayerPawn->GetActorLocation().Z < -10000.0f)
-	{
-		return;
-	}
-
-	const int32 HeadIdx = SkelMesh->GetBoneIndex(FName("Zombie_Head"));
-	const int32 NeckIdx = SkelMesh->GetBoneIndex(FName("Zombie_Neck"));
-	if (HeadIdx == INDEX_NONE)
-	{
-		return;
-	}
-
-	// Write into the EDITABLE component-space buffer (the one the renderer consumes after FinalizeBoneTransform).
-	// GetComponentSpaceTransforms() is the read-only side of the double buffer; writing there was lost on the swap.
-	TArray<FTransform>& CSTransforms = SkelMesh->GetEditableComponentSpaceTransforms();
-	if (!CSTransforms.IsValidIndex(HeadIdx))
-	{
-		return;
-	}
-
-	// Transform player eye height into SkelMesh component space (automatically accounts for crawl pitch!)
-	const FVector PlayerEyeWS = PlayerPawn->GetActorLocation() + FVector(0.0f, 0.0f, 52.0f);
-	const FVector TargetCS = SkelMesh->GetComponentTransform().InverseTransformPosition(PlayerEyeWS);
-	const FVector HeadPosCS = CSTransforms[HeadIdx].GetLocation();
-	const FVector DesiredDirCS = (TargetCS - HeadPosCS).GetSafeNormal();
-	if (DesiredDirCS.IsNearlyZero())
-	{
-		return;
-	}
-
-	// In SkelMesh component space, the zombie's natural face direction is +Y (since MeshYawOffset = -90 aligns +Y to actor +X)
-	FQuat DesiredDeltaQuat = FQuat::FindBetweenNormals(FVector(0.0f, 1.0f, 0.0f), DesiredDirCS);
-
-	// Clamp the crane angle: 95 deg standing; a belly-down crawler needs more reach to look up at a player above it
-	FVector Axis;
-	float AngleRad = 0.0f;
-	DesiredDeltaQuat.ToAxisAndAngle(Axis, AngleRad);
-	const float MaxAngleRad = FMath::DegreesToRadians(bIsCrawling ? 140.0f : 95.0f);
-	if (AngleRad > MaxAngleRad)
-	{
-		DesiredDeltaQuat = FQuat(Axis, MaxAngleRad);
-	}
-
-	const float SlerpAlpha = FMath::Clamp(World->GetDeltaSeconds() * 10.0f, 0.05f, 0.45f);
-	SmoothedHeadLookQuat = FQuat::Slerp(SmoothedHeadLookQuat, DesiredDeltaQuat, SlerpAlpha);
-	SmoothedHeadLookQuat.Normalize();
-
-	// Split the look rotation cleanly across Neck (45%) and Head (55%) for a natural eerie stare
-	if (NeckIdx != INDEX_NONE && CSTransforms.IsValidIndex(NeckIdx))
-	{
-		const FQuat NeckDelta = FQuat::Slerp(FQuat::Identity, SmoothedHeadLookQuat, 0.45f);
-		const FQuat HeadDelta = FQuat::Slerp(FQuat::Identity, SmoothedHeadLookQuat, 0.55f);
-
-		const FVector NeckPosCS = CSTransforms[NeckIdx].GetLocation();
-		CSTransforms[NeckIdx].SetRotation((NeckDelta * CSTransforms[NeckIdx].GetRotation()).GetNormalized());
-
-		// Keep Head properly attached to the rotated Neck pivot
-		const FVector RelHeadOffset = HeadPosCS - NeckPosCS;
-		CSTransforms[HeadIdx].SetLocation(NeckPosCS + NeckDelta.RotateVector(RelHeadOffset));
-		CSTransforms[HeadIdx].SetRotation((HeadDelta * NeckDelta * CSTransforms[HeadIdx].GetRotation()).GetNormalized());
-	}
-	else
-	{
-		CSTransforms[HeadIdx].SetRotation((SmoothedHeadLookQuat * CSTransforms[HeadIdx].GetRotation()).GetNormalized());
-	}
-
-	SkelMesh->MarkRenderDynamicDataDirty();
+	return GetMesh() ? Cast<UZombieAnimInstance>(GetMesh()->GetAnimInstance()) : nullptr;
 }
 
 void AZombieEnemy::Tick(float DeltaTime)
@@ -277,8 +183,23 @@ void AZombieEnemy::Tick(float DeltaTime)
 		StopAIMovement();
 		bAwarePlayer = false;
 		bCanSeePlayer = false;
+		if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
+		{
+			ZAnim->SetHeadLookTarget(false, bIsCrawling, FVector(0.0f, 300.0f, 150.0f));
+		}
 		UpdateLocomotionAnimation();
 		return;
+	}
+
+	// Update pre-finalization head look-at target in SkelMesh component space (always looks at player even while crawling!)
+	if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
+	{
+		if (USkeletalMeshComponent* SkelMesh = GetMesh())
+		{
+			const FVector PlayerEyeWS = PlayerPawn->GetActorLocation() + FVector(0.0f, 0.0f, 52.0f);
+			const FVector TargetEyeCS = SkelMesh->GetComponentTransform().InverseTransformPosition(PlayerEyeWS);
+			ZAnim->SetHeadLookTarget(!bHeadSevered && !bIsDead, bIsCrawling, TargetEyeCS);
+		}
 	}
 
 	const float Now = World->GetTimeSeconds();
@@ -478,14 +399,16 @@ void AZombieEnemy::UpdateLocomotionAnimation()
 		}
 	}
 
-	if (TargetAnim && TargetAnim != CurrentLoopAnim)
+	if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
 	{
-		SkelMesh->PlayAnimation(TargetAnim, true);
-		CurrentLoopAnim = TargetAnim;
+		if (TargetAnim && TargetAnim != CurrentLoopAnim)
+		{
+			ZAnim->PlayZombieSequence(TargetAnim, true, CurrentLocoPlayRate);
+			CurrentLoopAnim = TargetAnim;
+		}
+		CurrentLocoPlayRate = FMath::FInterpTo(CurrentLocoPlayRate, TargetPlayRate, World->GetDeltaSeconds(), 8.0f);
+		ZAnim->SetZombiePlayRate(CurrentLocoPlayRate);
 	}
-
-	CurrentLocoPlayRate = FMath::FInterpTo(CurrentLocoPlayRate, TargetPlayRate, World->GetDeltaSeconds(), 8.0f);
-	SkelMesh->SetPlayRate(CurrentLocoPlayRate);
 }
 
 void AZombieEnemy::PerformMeleeAttack(AActor* TargetActor)
@@ -500,12 +423,14 @@ void AZombieEnemy::PerformMeleeAttack(AActor* TargetActor)
 		MoveComp->StopMovementImmediately();
 	}
 
-	if (AttackAnim && GetMesh())
+	if (AttackAnim)
 	{
-		GetMesh()->PlayAnimation(AttackAnim, false);
-		GetMesh()->SetPlayRate(1.4f);
-		CurrentLoopAnim = nullptr;
-		ActionAnimEndTime = GetWorld()->GetTimeSeconds() + FMath::Min(1.05f, AttackAnim->GetPlayLength() / 1.4f);
+		if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
+		{
+			ZAnim->PlayZombieSequence(AttackAnim, false, 1.4f);
+			CurrentLoopAnim = nullptr;
+			ActionAnimEndTime = GetWorld()->GetTimeSeconds() + FMath::Min(1.05f, AttackAnim->GetPlayLength() / 1.4f);
+		}
 	}
 
 	if (USoundBase* BiteHitSnd = LoadObject<USoundBase>(nullptr, TEXT("/Game/Dev_Blueprint/Audio/SFX_ZombieBiteHit.SFX_ZombieBiteHit")))
@@ -554,8 +479,11 @@ void AZombieEnemy::Die()
 		GetCharacterMovement()->StopMovementImmediately();
 		GetCharacterMovement()->StopActiveMovement();
 
-		GetMesh()->PlayAnimation(DeathAnim, false);
-		GetMesh()->SetPlayRate(DeathPlayRate);
+		if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
+		{
+			ZAnim->SetHeadLookTarget(false, bIsCrawling, FVector(0.0f, 300.0f, 150.0f));
+			ZAnim->PlayZombieSequence(DeathAnim, false, DeathPlayRate);
+		}
 		CurrentLoopAnim = nullptr;
 
 		GetWorld()->GetTimerManager().SetTimer(DeathTimer, this, &AZombieEnemy::DeferredDestruction, DeferredDestructionTime, false);
