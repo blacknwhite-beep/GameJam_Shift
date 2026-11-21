@@ -125,8 +125,8 @@ void AZombieEnemy::Tick(float DeltaTime)
 			CrawlRockTime += DeltaTime * 6.5f;
 		}
 		const float SideRock = FMath::Sin(CrawlRockTime) * 7.5f * Smooth;
-		const float TargetPitchRoll = -78.0f * Smooth;
-		const float TargetMeshZ = FMath::Lerp(DefaultMeshRelativeZ, -26.0f, Smooth);
+		const float TargetPitchRoll = 78.0f * Smooth;
+		const float TargetMeshZ = FMath::Lerp(DefaultMeshRelativeZ, -18.0f, Smooth);
 		GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, TargetMeshZ));
 		GetMesh()->SetRelativeRotation(FRotator(SideRock, MeshYawOffset, TargetPitchRoll));
 	}
