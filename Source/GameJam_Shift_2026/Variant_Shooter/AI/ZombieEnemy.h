@@ -110,15 +110,34 @@ public:
 
 	/**
 	 * Applies a Tom Looman-style 3D sphere-mask wound on the zombie skin shader at the exact bullet impact location,
-	 * plus realistic arterial blood droplet burst and floor blood splatter!
+	 * plus CodeLikeMe-style limb dismemberment (head, arms, legs -> crawling) & arterial blood bursts!
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Zombie|Combat")
 	void ApplyBulletWound(const FVector& WorldHitLocation, const FVector& ShotDirection);
+
+	/** True once either leg has been blown off and the zombie is crawling on the ground */
+	UFUNCTION(BlueprintPure, Category = "Zombie|Combat")
+	bool IsCrawling() const { return bIsCrawling; }
 
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void Die() override;
+
+	/** Evaluates whether the bullet ray hit a dismemberable bone (Head, Arm, Leg) and severs it cleanly */
+	void TryDismemberAtHit(const FVector& WorldHitLocation, const FVector& ShotDirection);
+
+	/** Hides SeverBone (zero mesh stretching), attaches a bloody stump cap, and spawns a flying physics limb gib */
+	void DismemberLimb(FName SeverBone, FName StumpSocketBone, bool bIsHead, bool bIsLeg, const FVector& ShotDirection);
+
+	/** Transitions the zombie into a belly-down ground crawl when a leg is blown off */
+	void EnterCrawlState();
+
+	/** Spawns a physics-simulating severed limb piece that tumbles across the ground */
+	void SpawnSeveredLimbGib(const FVector& SpawnLoc, const FRotator& SpawnRot, bool bIsHead, bool bIsLeg, const FVector& ShotDirection);
+
+	/** Attaches a gory flesh-and-bone stump cap to the parent joint socket */
+	void AttachStumpCap(FName SocketBone, bool bIsHead);
 
 	/** Executes a melee hit on the target player */
 	void PerformMeleeAttack(AActor* TargetActor);
@@ -159,4 +178,15 @@ private:
 
 	/** Next wound slot index (cycles 0..3 across the 4 shader wound channels HitPosition0..3) */
 	int32 NextWoundSlotIndex = 0;
+
+	/** CodeLikeMe-style dismemberment tracking */
+	bool bHeadSevered = false;
+	bool bLeftArmSevered = false;
+	bool bRightArmSevered = false;
+	bool bLeftLegSevered = false;
+	bool bRightLegSevered = false;
+	bool bIsCrawling = false;
+	float CrawlBlendAlpha = 0.0f;
+	float CrawlRockTime = 0.0f;
+	float DefaultMeshRelativeZ = -90.0f;
 };

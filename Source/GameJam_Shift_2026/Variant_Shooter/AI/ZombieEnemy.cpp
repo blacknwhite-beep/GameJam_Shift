@@ -114,6 +114,23 @@ void AZombieEnemy::Tick(float DeltaTime)
 		return;
 	}
 
+	// Smoothly pitch the zombie belly-down onto the ground while crawling (after losing a leg)
+	if (bIsCrawling && GetMesh())
+	{
+		CrawlBlendAlpha = FMath::Min(1.0f, CrawlBlendAlpha + DeltaTime * 3.8f);
+		const float Smooth = FMath::InterpEaseOut(0.0f, 1.0f, CrawlBlendAlpha, 2.0f);
+		const float GroundSpeed = GetVelocity().Size2D();
+		if (GroundSpeed > 8.0f)
+		{
+			CrawlRockTime += DeltaTime * 6.5f;
+		}
+		const float SideRock = FMath::Sin(CrawlRockTime) * 7.5f * Smooth;
+		const float TargetPitchRoll = -78.0f * Smooth;
+		const float TargetMeshZ = FMath::Lerp(DefaultMeshRelativeZ, -26.0f, Smooth);
+		GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, TargetMeshZ));
+		GetMesh()->SetRelativeRotation(FRotator(SideRock, MeshYawOffset, TargetPitchRoll));
+	}
+
 	UWorld* World = GetWorld();
 	if (!World)
 	{
@@ -562,4 +579,259 @@ void AZombieEnemy::ApplyBulletWound(const FVector& WorldHitLocation, const FVect
 			}
 		}
 	}
+
+	// 4. Evaluate CodeLikeMe-style limb dismemberment (Head -> instant kill, Arms -> fly off & keep chasing, Legs -> fly off & crawl!)
+	TryDismemberAtHit(WorldHitLocation, ShotDirection);
+}
+
+void AZombieEnemy::TryDismemberAtHit(const FVector& WorldHitLocation, const FVector& ShotDirection)
+{
+	USkeletalMeshComponent* SkelMesh = GetMesh();
+	if (!SkelMesh || bIsDead)
+	{
+		return;
+	}
+
+	const FVector Dir = ShotDirection.GetSafeNormal();
+	const FVector RayStart = WorldHitLocation - Dir * 25.0f;
+	const FVector RayEnd = WorldHitLocation + Dir * 130.0f;
+
+	struct FLimbCandidate
+	{
+		FName QueryBone;
+		FName SeverBone;
+		FName StumpBone;
+		float MaxDist;
+		bool bIsHead;
+		bool bIsLeg;
+		bool* bAlreadySevered;
+	};
+
+	const FLimbCandidate Candidates[] = {
+		// Headshot (instant decapitation + kill)
+		{ FName("Zombie_Head"),          FName("Zombie_Head"),          FName("Zombie_Neck"),          28.0f, true,  false, &bHeadSevered },
+		// Left Arm
+		{ FName("Zombie_LeftForeArm"),   FName("Zombie_LeftForeArm"),   FName("Zombie_LeftArm"),       28.0f, false, false, &bLeftArmSevered },
+		{ FName("Zombie_LeftHand"),      FName("Zombie_LeftForeArm"),   FName("Zombie_LeftArm"),       28.0f, false, false, &bLeftArmSevered },
+		{ FName("Zombie_LeftArm"),       FName("Zombie_LeftArm"),       FName("Zombie_LeftShoulder"),  28.0f, false, false, &bLeftArmSevered },
+		// Right Arm
+		{ FName("Zombie_RightForeArm"),  FName("Zombie_RightForeArm"),  FName("Zombie_RightArm"),      28.0f, false, false, &bRightArmSevered },
+		{ FName("Zombie_RightHand"),     FName("Zombie_RightForeArm"),  FName("Zombie_RightArm"),      28.0f, false, false, &bRightArmSevered },
+		{ FName("Zombie_RightArm"),      FName("Zombie_RightArm"),      FName("Zombie_RightShoulder"), 28.0f, false, false, &bRightArmSevered },
+		// Left Leg (-> crawling!)
+		{ FName("Zombie_LeftLeg"),       FName("Zombie_LeftLeg"),       FName("Zombie_LeftUpLeg"),     32.0f, false, true,  &bLeftLegSevered },
+		{ FName("Zombie_LeftFoot"),      FName("Zombie_LeftLeg"),       FName("Zombie_LeftUpLeg"),     32.0f, false, true,  &bLeftLegSevered },
+		{ FName("Zombie_LeftUpLeg"),     FName("Zombie_LeftUpLeg"),     FName("Zombie_Spine"),         30.0f, false, true,  &bLeftLegSevered },
+		// Right Leg (-> crawling!)
+		{ FName("Zombie_RightLeg"),      FName("Zombie_RightLeg"),      FName("Zombie_RightUpLeg"),    32.0f, false, true,  &bRightLegSevered },
+		{ FName("Zombie_RightFoot"),     FName("Zombie_RightLeg"),      FName("Zombie_RightUpLeg"),    32.0f, false, true,  &bRightLegSevered },
+		{ FName("Zombie_RightUpLeg"),    FName("Zombie_RightUpLeg"),    FName("Zombie_Spine"),         30.0f, false, true,  &bRightLegSevered },
+	};
+
+	const FLimbCandidate* BestMatch = nullptr;
+	float BestDist = FLT_MAX;
+
+	for (const FLimbCandidate& C : Candidates)
+	{
+		if (*C.bAlreadySevered)
+		{
+			continue;
+		}
+		if (SkelMesh->GetBoneIndex(C.QueryBone) == INDEX_NONE)
+		{
+			continue;
+		}
+		const FVector BoneLoc = SkelMesh->GetBoneLocation(C.QueryBone);
+		const float Dist = FMath::PointDistToSegment(BoneLoc, RayStart, RayEnd);
+		if (Dist <= C.MaxDist && Dist < BestDist)
+		{
+			BestDist = Dist;
+			BestMatch = &C;
+		}
+	}
+
+	if (!BestMatch)
+	{
+		return;
+	}
+
+	*BestMatch->bAlreadySevered = true;
+	DismemberLimb(BestMatch->SeverBone, BestMatch->StumpBone, BestMatch->bIsHead, BestMatch->bIsLeg, Dir);
+}
+
+void AZombieEnemy::DismemberLimb(FName SeverBone, FName StumpSocketBone, bool bIsHead, bool bIsLeg, const FVector& ShotDirection)
+{
+	USkeletalMeshComponent* SkelMesh = GetMesh();
+	if (!SkelMesh)
+	{
+		return;
+	}
+
+	const FVector SeverWorldLoc = SkelMesh->GetBoneLocation(SeverBone);
+	const FRotator SeverWorldRot = SkelMesh->GetSocketRotation(SeverBone);
+
+	// 1. Cleanly hide the severed bone & terminate its child physics bodies (zero mesh stretching!)
+	SkelMesh->HideBoneByName(SeverBone, PBO_Term);
+
+	// 2. Cap the severed joint with a gory crimson flesh + pale bone stump
+	AttachStumpCap(StumpSocketBone, bIsHead);
+
+	// 3. Spawn a flying physics-simulating severed limb piece that tumbles across the ground
+	SpawnSeveredLimbGib(SeverWorldLoc, SeverWorldRot, bIsHead, bIsLeg, ShotDirection);
+
+	// 4. Play a wet crunch sound & alert the zombie to the player
+	if (AttackGroanSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, AttackGroanSound, SeverWorldLoc, 0.9f, bIsHead ? 1.35f : 0.85f);
+	}
+	bAwarePlayer = true;
+
+	// 5. Apply CodeLikeMe-style behavioral consequence:
+	//    - Head blown off -> instant fatal headshot!
+	//    - Leg blown off  -> drop to the ground and crawl relentlessly toward the player!
+	//    - Both arms off  -> keep chasing with weaker bite damage!
+	if (bIsHead)
+	{
+		CurrentHP = 0.0f;
+		Die();
+	}
+	else if (bIsLeg && !bIsCrawling)
+	{
+		EnterCrawlState();
+	}
+	else if (bLeftArmSevered && bRightArmSevered)
+	{
+		MeleeDamage = FMath::Max(6.0f, MeleeDamage * 0.5f);
+	}
+}
+
+void AZombieEnemy::EnterCrawlState()
+{
+	if (bIsCrawling || bIsDead)
+	{
+		return;
+	}
+
+	bIsCrawling = true;
+	CrawlBlendAlpha = 0.0f;
+	CrawlRockTime = 0.0f;
+
+	if (GetMesh())
+	{
+		DefaultMeshRelativeZ = GetMesh()->GetRelativeLocation().Z;
+	}
+
+	// Lower collision capsule so the player must aim down at the crawling zombie
+	if (UCapsuleComponent* Cap = GetCapsuleComponent())
+	{
+		Cap->SetCapsuleSize(34.0f, 36.0f, true);
+	}
+
+	// Slow down to a relentless ground crawl
+	ZombieMoveSpeed = FMath::Max(55.0f, ZombieMoveSpeed * 0.38f);
+	bUseRunAnim = false;
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->MaxWalkSpeed = ZombieMoveSpeed;
+	}
+}
+
+void AZombieEnemy::AttachStumpCap(FName SocketBone, bool bIsHead)
+{
+	USkeletalMeshComponent* SkelMesh = GetMesh();
+	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	UStaticMesh* CylinderMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
+	if (!SkelMesh || !SphereMesh || !BaseMat || SkelMesh->GetBoneIndex(SocketBone) == INDEX_NONE)
+	{
+		return;
+	}
+
+	UStaticMeshComponent* FleshCap = NewObject<UStaticMeshComponent>(this);
+	FleshCap->SetStaticMesh(SphereMesh);
+	FleshCap->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	FleshCap->SetCastShadow(false);
+	const float CapScale = bIsHead ? 0.14f : 0.11f;
+	FleshCap->SetRelativeScale3D(FVector(CapScale, CapScale, CapScale * 0.7f));
+	if (UMaterialInstanceDynamic* FleshMID = UMaterialInstanceDynamic::Create(BaseMat, this))
+	{
+		FleshMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.28f, 0.008f, 0.008f, 1.0f));
+		FleshMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.06f, 0.002f, 0.002f, 1.0f));
+		FleshCap->SetMaterial(0, FleshMID);
+	}
+	FleshCap->SetupAttachment(SkelMesh, SocketBone);
+	FleshCap->RegisterComponent();
+
+	// Exposed pale bone tip poking slightly out of the crimson stump
+	if (CylinderMesh)
+	{
+		UStaticMeshComponent* BoneTip = NewObject<UStaticMeshComponent>(this);
+		BoneTip->SetStaticMesh(CylinderMesh);
+		BoneTip->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		BoneTip->SetCastShadow(false);
+		BoneTip->SetRelativeScale3D(FVector(0.032f, 0.032f, 0.09f));
+		if (UMaterialInstanceDynamic* BoneMID = UMaterialInstanceDynamic::Create(BaseMat, this))
+		{
+			BoneMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.84f, 0.78f, 0.68f, 1.0f));
+			BoneTip->SetMaterial(0, BoneMID);
+		}
+		BoneTip->SetupAttachment(FleshCap);
+		BoneTip->RegisterComponent();
+	}
+}
+
+void AZombieEnemy::SpawnSeveredLimbGib(const FVector& SpawnLoc, const FRotator& SpawnRot, bool bIsHead, bool bIsLeg, const FVector& ShotDirection)
+{
+	UWorld* World = GetWorld();
+	UStaticMesh* MeshAsset = bIsHead
+		? LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"))
+		: LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
+	if (!World || !MeshAsset || !BaseMat)
+	{
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AActor* GibActor = World->SpawnActor<AActor>(AActor::StaticClass(), SpawnLoc, SpawnRot, Params);
+	if (!GibActor)
+	{
+		return;
+	}
+
+	UStaticMeshComponent* GibMesh = NewObject<UStaticMeshComponent>(GibActor, TEXT("SeveredLimbGib"));
+	GibMesh->SetStaticMesh(MeshAsset);
+	const FVector GibScale = bIsHead
+		? FVector(0.22f, 0.20f, 0.24f)
+		: (bIsLeg ? FVector(0.14f, 0.14f, 0.48f) : FVector(0.11f, 0.11f, 0.40f));
+	GibMesh->SetWorldScale3D(GibScale);
+
+	if (UMaterialInstanceDynamic* SkinMID = UMaterialInstanceDynamic::Create(BaseMat, GibActor))
+	{
+		// Rotting zombie flesh-green tint stained with dark crimson
+		SkinMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.24f, 0.26f, 0.17f, 1.0f));
+		SkinMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.03f, 0.005f, 0.004f, 1.0f));
+		GibMesh->SetMaterial(0, SkinMID);
+	}
+
+	GibMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	GibMesh->SetCollisionObjectType(ECC_PhysicsBody);
+	GibMesh->SetCollisionResponseToAllChannels(ECR_Block);
+	GibMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	GibMesh->SetSimulatePhysics(true);
+	GibMesh->SetEnableGravity(true);
+	GibMesh->RegisterComponent();
+	GibActor->SetRootComponent(GibMesh);
+
+	// Launch the severed limb outward along the bullet trajectory with realistic tumbling spin
+	const FVector ImpulseDir = (ShotDirection + FVector(FMath::FRandRange(-0.25f, 0.25f), FMath::FRandRange(-0.25f, 0.25f), 0.55f)).GetSafeNormal();
+	GibMesh->AddImpulse(ImpulseDir * FMath::FRandRange(340.0f, 520.0f), NAME_None, true);
+	GibMesh->AddAngularImpulseInDegrees(
+		FVector(FMath::FRandRange(-520.0f, 520.0f), FMath::FRandRange(-520.0f, 520.0f), FMath::FRandRange(-520.0f, 520.0f)),
+		NAME_None,
+		true
+	);
+
+	GibActor->SetLifeSpan(18.0f);
 }
