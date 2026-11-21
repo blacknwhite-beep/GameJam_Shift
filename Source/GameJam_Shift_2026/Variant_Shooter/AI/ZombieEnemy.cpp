@@ -152,7 +152,9 @@ void AZombieEnemy::ApplyHeadLookAtPlayer()
 		return;
 	}
 
-	TArray<FTransform>& CSTransforms = const_cast<TArray<FTransform>&>(SkelMesh->GetComponentSpaceTransforms());
+	// Write into the EDITABLE component-space buffer (the one the renderer consumes after FinalizeBoneTransform).
+	// GetComponentSpaceTransforms() is the read-only side of the double buffer; writing there was lost on the swap.
+	TArray<FTransform>& CSTransforms = SkelMesh->GetEditableComponentSpaceTransforms();
 	if (!CSTransforms.IsValidIndex(HeadIdx))
 	{
 		return;
@@ -171,11 +173,11 @@ void AZombieEnemy::ApplyHeadLookAtPlayer()
 	// In SkelMesh component space, the zombie's natural face direction is +Y (since MeshYawOffset = -90 aligns +Y to actor +X)
 	FQuat DesiredDeltaQuat = FQuat::FindBetweenNormals(FVector(0.0f, 1.0f, 0.0f), DesiredDirCS);
 
-	// Clamp max neck crane angle to 95 deg so the zombie stares straight ahead/up while crawling without breaking its neck backwards
+	// Clamp the crane angle: 95 deg standing; a belly-down crawler needs more reach to look up at a player above it
 	FVector Axis;
 	float AngleRad = 0.0f;
 	DesiredDeltaQuat.ToAxisAndAngle(Axis, AngleRad);
-	const float MaxAngleRad = FMath::DegreesToRadians(95.0f);
+	const float MaxAngleRad = FMath::DegreesToRadians(bIsCrawling ? 140.0f : 95.0f);
 	if (AngleRad > MaxAngleRad)
 	{
 		DesiredDeltaQuat = FQuat(Axis, MaxAngleRad);
