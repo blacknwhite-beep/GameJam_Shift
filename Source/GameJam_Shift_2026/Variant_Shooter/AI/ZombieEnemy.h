@@ -121,8 +121,12 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void Tick(float DeltaTime) override;
 	virtual void Die() override;
+
+	/** Post-animation callback that smoothly rotates Zombie_Neck & Zombie_Head to always stare at the player */
+	void ApplyHeadLookAtPlayer();
 
 	/** Evaluates whether the bullet ray hit a dismemberable bone (Head, Arm, Leg) and severs it cleanly */
 	void TryDismemberAtHit(const FVector& WorldHitLocation, const FVector& ShotDirection);
@@ -189,4 +193,8 @@ private:
 	float CrawlBlendAlpha = 0.0f;
 	float CrawlRockTime = 0.0f;
 	float DefaultMeshRelativeZ = -90.0f;
+
+	/** Head look-at-player bone override state */
+	FDelegateHandle BoneFinalizedHandle;
+	FQuat SmoothedHeadLookQuat = FQuat::Identity;
 };

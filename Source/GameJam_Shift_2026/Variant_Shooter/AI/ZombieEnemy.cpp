@@ -103,6 +103,108 @@ void AZombieEnemy::BeginPlay()
 		GetMesh()->PlayAnimation(IdleAnim, true);
 		CurrentLoopAnim = IdleAnim;
 	}
+
+	// Register post-animation bone callback so Zombie_Head & Zombie_Neck always look toward the player (even while crawling!)
+	if (USkeletalMeshComponent* SkelMesh = GetMesh())
+	{
+		BoneFinalizedHandle = SkelMesh->RegisterOnBoneTransformsFinalizedDelegate(
+			FOnBoneTransformsFinalizedMultiCast::FDelegate::CreateUObject(this, &AZombieEnemy::ApplyHeadLookAtPlayer));
+	}
+}
+
+void AZombieEnemy::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (USkeletalMeshComponent* SkelMesh = GetMesh())
+	{
+		if (BoneFinalizedHandle.IsValid())
+		{
+			SkelMesh->UnregisterOnBoneTransformsFinalizedDelegate(BoneFinalizedHandle);
+			BoneFinalizedHandle.Reset();
+		}
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+void AZombieEnemy::ApplyHeadLookAtPlayer()
+{
+	if (bIsDead || bHeadSevered)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* SkelMesh = GetMesh();
+	UWorld* World = GetWorld();
+	if (!SkelMesh || !World)
+	{
+		return;
+	}
+
+	APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(World, 0);
+	if (!PlayerPawn || PlayerPawn->GetActorLocation().Z < -10000.0f)
+	{
+		return;
+	}
+
+	const int32 HeadIdx = SkelMesh->GetBoneIndex(FName("Zombie_Head"));
+	const int32 NeckIdx = SkelMesh->GetBoneIndex(FName("Zombie_Neck"));
+	if (HeadIdx == INDEX_NONE)
+	{
+		return;
+	}
+
+	TArray<FTransform>& CSTransforms = const_cast<TArray<FTransform>&>(SkelMesh->GetComponentSpaceTransforms());
+	if (!CSTransforms.IsValidIndex(HeadIdx))
+	{
+		return;
+	}
+
+	// Transform player eye height into SkelMesh component space (automatically accounts for crawl pitch!)
+	const FVector PlayerEyeWS = PlayerPawn->GetActorLocation() + FVector(0.0f, 0.0f, 52.0f);
+	const FVector TargetCS = SkelMesh->GetComponentTransform().InverseTransformPosition(PlayerEyeWS);
+	const FVector HeadPosCS = CSTransforms[HeadIdx].GetLocation();
+	const FVector DesiredDirCS = (TargetCS - HeadPosCS).GetSafeNormal();
+	if (DesiredDirCS.IsNearlyZero())
+	{
+		return;
+	}
+
+	// In SkelMesh component space, the zombie's natural face direction is +Y (since MeshYawOffset = -90 aligns +Y to actor +X)
+	FQuat DesiredDeltaQuat = FQuat::FindBetweenNormals(FVector(0.0f, 1.0f, 0.0f), DesiredDirCS);
+
+	// Clamp max neck crane angle to 95 deg so the zombie stares straight ahead/up while crawling without breaking its neck backwards
+	FVector Axis;
+	float AngleRad = 0.0f;
+	DesiredDeltaQuat.ToAxisAndAngle(Axis, AngleRad);
+	const float MaxAngleRad = FMath::DegreesToRadians(95.0f);
+	if (AngleRad > MaxAngleRad)
+	{
+		DesiredDeltaQuat = FQuat(Axis, MaxAngleRad);
+	}
+
+	const float SlerpAlpha = FMath::Clamp(World->GetDeltaSeconds() * 10.0f, 0.05f, 0.45f);
+	SmoothedHeadLookQuat = FQuat::Slerp(SmoothedHeadLookQuat, DesiredDeltaQuat, SlerpAlpha);
+	SmoothedHeadLookQuat.Normalize();
+
+	// Split the look rotation cleanly across Neck (45%) and Head (55%) for a natural eerie stare
+	if (NeckIdx != INDEX_NONE && CSTransforms.IsValidIndex(NeckIdx))
+	{
+		const FQuat NeckDelta = FQuat::Slerp(FQuat::Identity, SmoothedHeadLookQuat, 0.45f);
+		const FQuat HeadDelta = FQuat::Slerp(FQuat::Identity, SmoothedHeadLookQuat, 0.55f);
+
+		const FVector NeckPosCS = CSTransforms[NeckIdx].GetLocation();
+		CSTransforms[NeckIdx].SetRotation((NeckDelta * CSTransforms[NeckIdx].GetRotation()).GetNormalized());
+
+		// Keep Head properly attached to the rotated Neck pivot
+		const FVector RelHeadOffset = HeadPosCS - NeckPosCS;
+		CSTransforms[HeadIdx].SetLocation(NeckPosCS + NeckDelta.RotateVector(RelHeadOffset));
+		CSTransforms[HeadIdx].SetRotation((HeadDelta * NeckDelta * CSTransforms[HeadIdx].GetRotation()).GetNormalized());
+	}
+	else
+	{
+		CSTransforms[HeadIdx].SetRotation((SmoothedHeadLookQuat * CSTransforms[HeadIdx].GetRotation()).GetNormalized());
+	}
+
+	SkelMesh->MarkRenderDynamicDataDirty();
 }
 
 void AZombieEnemy::Tick(float DeltaTime)
