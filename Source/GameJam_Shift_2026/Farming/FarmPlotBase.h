@@ -29,6 +29,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaTime) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 public:
@@ -59,6 +60,18 @@ public:
 	/** Interaction box volume to facilitate line-of-sight raycasts and player proximity */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UBoxComponent> InteractionBox;
+
+	/** Floating 3D health bar root (shown ONLY in Combat world during nighttime when a crop is planted) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<USceneComponent> HealthBarRoot;
+
+	/** Dark background backing for the 3D crop health bar */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> HealthBarBgMesh;
+
+	/** Colored fill bar for the 3D crop health bar (Green -> Yellow -> Red) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> HealthBarFillMesh;
 
 	// -------------------------------------------------------------------------
 	// State & Configuration
@@ -111,6 +124,39 @@ public:
 	/** Floating text format shown on harvest (e.g. "+16 Shotgun Shells") */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Audio & VFX")
 	FString HarvestFloatingText;
+
+	// -------------------------------------------------------------------------
+	// Nighttime Combat Crop Health & Farm Mirroring
+	// -------------------------------------------------------------------------
+
+	/** Max health of a planted crop when attacked by zombies at night (5-6 zombie hits to destroy) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Combat", meta = (ClampMin = "1.0"))
+	float MaxCropHealth = 100.0f;
+
+	/** Current remaining health of this planted crop */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Farming|Combat")
+	float CurrentCropHealth = 100.0f;
+
+	/** Returns true if this plot is in the Combat world (Z > -10000) */
+	UFUNCTION(BlueprintPure, Category = "Farming|Combat")
+	bool IsCombatWorldPlot() const { return GetActorLocation().Z > -10000.0f; }
+
+	/** Returns true if this plot currently has a living planted crop that zombies can attack */
+	UFUNCTION(BlueprintPure, Category = "Farming|Combat")
+	bool HasLivingCrop() const { return CurrentStage != ECropStage::Empty && CurrentStage != ECropStage::Withered && CurrentCropHealth > 0.0f; }
+
+	/** Mirrors the exact crop state, seed type, growth stage, and visuals from a Farm-world source plot */
+	void ApplyMirroredState(AFarmPlotBase* SourceFarmPlot);
+
+	/** Applies zombie melee damage to this crop at night, updating the 3D health bar and destroying it at 0 HP */
+	UFUNCTION(BlueprintCallable, Category = "Farming|Combat")
+	void ReceiveZombieAttack(float Damage);
+
+	/** Destroys this crop when killed by zombies (also called on the linked Farm plot so destruction persists) */
+	void DestroyCropByZombies();
+
+	/** Refreshes visibility, fill scale, and color of the floating 3D nighttime health bar */
+	void UpdateHealthBarVisuals();
 
 	// -------------------------------------------------------------------------
 	// Player Interaction API
@@ -207,6 +253,9 @@ public:
 	void OnHarvested(FName ItemID, int32 Quantity);
 
 protected:
+	/** Configures HarvestYield, HarvestFloatingText, and Mesh_Mature from SeedID */
+	void ConfigureVisualsForSeed(FName SeedID);
+
 	/** Updates internal crop mesh scale and visibility for stage prototyping */
 	virtual void UpdateCropMeshForStage(ECropStage Stage);
 
@@ -218,4 +267,11 @@ protected:
 
 	/** Timestamp when current stage timer was started */
 	float StageStartTime;
+
+	/** On Combat-world mirrored plots, points back to the corresponding Farm-world source plot */
+	TWeakObjectPtr<AFarmPlotBase> LinkedFarmSourcePlot;
+
+	/** Dynamic material instance for coloring the 3D health bar fill (Green -> Yellow -> Red) */
+	UPROPERTY(Transient)
+	TObjectPtr<class UMaterialInstanceDynamic> HealthBarFillMID;
 };

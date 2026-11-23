@@ -2,6 +2,7 @@
 
 #include "FarmPlotBase.h"
 #include "GameJam_Shift_2026.h"
+#include "DimensionShiftSubsystem.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/BoxComponent.h"
@@ -11,6 +12,7 @@
 #include "Engine/Engine.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
 #include "Sound/SoundBase.h"
@@ -22,7 +24,8 @@ AFarmPlotBase::AFarmPlotBase()
 	, PlantedSeedID(NAME_None)
 	, StageStartTime(0.0f)
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
 
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
 	RootComponent = SceneRoot;
@@ -55,6 +58,28 @@ AFarmPlotBase::AFarmPlotBase()
 	InteractionBox->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
 	InteractionBox->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	InteractionBox->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+
+	// Floating 3D nighttime health bar (hidden by default; shown ONLY in Combat world during nighttime when planted)
+	HealthBarRoot = CreateDefaultSubobject<USceneComponent>(TEXT("HealthBarRoot"));
+	HealthBarRoot->SetupAttachment(RootComponent);
+	HealthBarRoot->SetRelativeLocation(FVector(0.0f, 0.0f, 128.0f));
+	HealthBarRoot->SetVisibility(false, true);
+
+	HealthBarBgMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HealthBarBgMesh"));
+	HealthBarBgMesh->SetupAttachment(HealthBarRoot);
+	HealthBarBgMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HealthBarBgMesh->SetCastShadow(false);
+	HealthBarBgMesh->SetRelativeLocation(FVector(-1.0f, 0.0f, 0.0f));
+	HealthBarBgMesh->SetRelativeScale3D(FVector(0.025f, 0.92f, 0.14f));
+	HealthBarBgMesh->SetVisibility(false);
+
+	HealthBarFillMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HealthBarFillMesh"));
+	HealthBarFillMesh->SetupAttachment(HealthBarRoot);
+	HealthBarFillMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HealthBarFillMesh->SetCastShadow(false);
+	HealthBarFillMesh->SetRelativeLocation(FVector(1.0f, 0.0f, 0.0f));
+	HealthBarFillMesh->SetRelativeScale3D(FVector(0.03f, 0.86f, 0.095f));
+	HealthBarFillMesh->SetVisibility(false);
 }
 
 void AFarmPlotBase::BeginPlay()
@@ -89,10 +114,85 @@ void AFarmPlotBase::BeginPlay()
 
 	UpdateCropMeshForStage(CurrentStage);
 
+	// Initialize 3D nighttime health bar meshes & materials
+	UStaticMesh* CubeAsset = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+	UMaterialInterface* BaseCropMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
+	if (CubeAsset && HealthBarBgMesh && HealthBarFillMesh)
+	{
+		HealthBarBgMesh->SetStaticMesh(CubeAsset);
+		HealthBarFillMesh->SetStaticMesh(CubeAsset);
+		if (BaseCropMat)
+		{
+			if (UMaterialInstanceDynamic* BgMID = UMaterialInstanceDynamic::Create(BaseCropMat, this))
+			{
+				BgMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.03f, 0.03f, 0.04f, 1.0f));
+				BgMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.01f, 0.01f, 0.015f, 1.0f));
+				HealthBarBgMesh->SetMaterial(0, BgMID);
+			}
+			HealthBarFillMID = UMaterialInstanceDynamic::Create(BaseCropMat, this);
+			if (HealthBarFillMID)
+			{
+				HealthBarFillMesh->SetMaterial(0, HealthBarFillMID);
+			}
+		}
+	}
+
+	// Only Combat-world plots tick to billboard the nighttime crop health bar toward the player
+	SetActorTickEnabled(IsCombatWorldPlot());
+	UpdateHealthBarVisuals();
+
 	// If spawned in-level with a pre-configured stage, trigger initial Blueprint event
 	if (CurrentStage != ECropStage::Empty)
 	{
 		OnStageChanged(CurrentStage);
+	}
+}
+
+void AFarmPlotBase::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	if (!IsCombatWorldPlot() || !HealthBarRoot)
+	{
+		return;
+	}
+
+	bool bIsNight = false;
+	if (UWorld* World = GetWorld())
+	{
+		if (UGameInstance* GI = World->GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				bIsNight = Sub->IsNightWindow() && !Sub->bIsStartMenuActive;
+			}
+		}
+	}
+
+	const bool bShouldShow = bIsNight && HasLivingCrop();
+	if (HealthBarBgMesh && HealthBarBgMesh->IsVisible() != bShouldShow)
+	{
+		HealthBarRoot->SetVisibility(bShouldShow, true);
+		HealthBarBgMesh->SetVisibility(bShouldShow);
+		if (HealthBarFillMesh)
+		{
+			HealthBarFillMesh->SetVisibility(bShouldShow);
+		}
+	}
+
+	if (bShouldShow)
+	{
+		if (APlayerController* PC = GetWorld()->GetFirstPlayerController())
+		{
+			if (PC->PlayerCameraManager)
+			{
+				const FVector ToCam = (PC->PlayerCameraManager->GetCameraLocation() - HealthBarRoot->GetComponentLocation()).GetSafeNormal2D();
+				if (!ToCam.IsNearlyZero())
+				{
+					HealthBarRoot->SetWorldRotation(ToCam.Rotation());
+				}
+			}
+		}
 	}
 }
 
@@ -239,29 +339,8 @@ bool AFarmPlotBase::TillPlot()
 	return true;
 }
 
-bool AFarmPlotBase::PlantSeed(FName SeedID, float InStageDuration)
+void AFarmPlotBase::ConfigureVisualsForSeed(FName SeedID)
 {
-	if (!CanPlant())
-	{
-		UE_LOG(LogGameJam_Shift_2026, Verbose, TEXT("PlantSeed failed: Plot %s is not empty (CurrentStage: %d)."),
-			*GetName(), static_cast<int32>(CurrentStage));
-		return false;
-	}
-
-	if (SeedID.IsNone())
-	{
-		UE_LOG(LogGameJam_Shift_2026, Warning, TEXT("PlantSeed failed: SeedID is None on plot %s."), *GetName());
-		return false;
-	}
-
-	PlantedSeedID = SeedID;
-	if (!bPreserveConfiguredYield)
-	{
-		StageDuration = FMath::Max(1.0f, InStageDuration);
-	}
-	CurrentStage = ECropStage::Planted;
-	bIsWatered = false;
-
 	// Ensure Sprout mesh is always loaded so all plots show proper 3D sprouts during growth
 	if (Mesh_Sprout && Mesh_Sprout->GetStaticMesh() == nullptr)
 	{
@@ -271,8 +350,6 @@ bool AFarmPlotBase::PlantSeed(FName SeedID, float InStageDuration)
 		}
 	}
 
-	// Always configure HarvestYield, HarvestFloatingText, and Mesh_Mature from the planted SeedID
-	// so every seed plants its specific ammo/resource type regardless of which plot it is planted on
 	const FString SeedStr = SeedID.ToString();
 	if (SeedStr.Contains(TEXT("Shotgun"), ESearchCase::IgnoreCase) || SeedStr.Contains(TEXT("Buckshot"), ESearchCase::IgnoreCase))
 	{
@@ -328,7 +405,6 @@ bool AFarmPlotBase::PlantSeed(FName SeedID, float InStageDuration)
 				{
 					Mesh_Mature->SetMaterial(SlotIdx, nullptr);
 				}
-				// Apply crimson berry & copper brass materials to distinguish 9mm Pistol Berry Vines from golden Rifle Wheat
 				if (UMaterialInterface* BerryRed = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/MI_Crop_ShellRed.MI_Crop_ShellRed")))
 				{
 					if (NumMats > 1)
@@ -365,12 +441,189 @@ bool AFarmPlotBase::PlantSeed(FName SeedID, float InStageDuration)
 			}
 		}
 	}
-	else
+	else if (!SeedID.IsNone())
 	{
 		HarvestYield.ItemID = SeedID;
 		HarvestYield.Quantity = 5;
 		HarvestFloatingText = FString::Printf(TEXT("+5 %s"), *SeedID.ToString());
 	}
+}
+
+void AFarmPlotBase::ApplyMirroredState(AFarmPlotBase* SourceFarmPlot)
+{
+	if (!SourceFarmPlot)
+	{
+		return;
+	}
+
+	LinkedFarmSourcePlot = SourceFarmPlot;
+	PlantedSeedID = SourceFarmPlot->PlantedSeedID;
+	CurrentStage = SourceFarmPlot->CurrentStage;
+	bIsWatered = SourceFarmPlot->bIsWatered;
+	HarvestYield = SourceFarmPlot->HarvestYield;
+	HarvestFloatingText = SourceFarmPlot->HarvestFloatingText;
+	MaxCropHealth = SourceFarmPlot->MaxCropHealth;
+
+	if (CurrentStage != ECropStage::Empty && CurrentStage != ECropStage::Withered)
+	{
+		CurrentCropHealth = (SourceFarmPlot->CurrentCropHealth > 0.0f) ? SourceFarmPlot->CurrentCropHealth : MaxCropHealth;
+		ConfigureVisualsForSeed(PlantedSeedID);
+	}
+	else
+	{
+		CurrentCropHealth = 0.0f;
+	}
+
+	if (SoilMesh)
+	{
+		if (bIsWatered && WetSoilMaterial)
+		{
+			SoilMesh->SetMaterial(0, WetSoilMaterial);
+		}
+		else if (!bIsWatered && DrySoilMaterial)
+		{
+			SoilMesh->SetMaterial(0, DrySoilMaterial);
+		}
+	}
+
+	UpdateCropMeshForStage(CurrentStage);
+	UpdateHealthBarVisuals();
+}
+
+void AFarmPlotBase::ReceiveZombieAttack(float Damage)
+{
+	if (!HasLivingCrop() || Damage <= 0.0f)
+	{
+		return;
+	}
+
+	CurrentCropHealth = FMath::Max(0.0f, CurrentCropHealth - Damage);
+	if (AFarmPlotBase* SourcePlot = LinkedFarmSourcePlot.Get())
+	{
+		SourcePlot->CurrentCropHealth = CurrentCropHealth;
+	}
+
+	UpdateHealthBarVisuals();
+
+	if (CurrentCropHealth <= 0.0f)
+	{
+		DestroyCropByZombies();
+		if (AFarmPlotBase* SourcePlot = LinkedFarmSourcePlot.Get())
+		{
+			SourcePlot->DestroyCropByZombies();
+		}
+		SpawnFloatingHarvestText(TEXT("CROP DESTROYED!"), FColor(255, 55, 55));
+	}
+	else
+	{
+		SpawnFloatingHarvestText(FString::Printf(TEXT("-%.0f HP"), Damage), FColor(255, 110, 80));
+	}
+}
+
+void AFarmPlotBase::DestroyCropByZombies()
+{
+	CurrentStage = ECropStage::Empty;
+	bIsWatered = false;
+	PlantedSeedID = NAME_None;
+	CurrentCropHealth = 0.0f;
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(GrowthTimerHandle);
+	}
+
+	if (SoilMesh && DrySoilMaterial)
+	{
+		SoilMesh->SetMaterial(0, DrySoilMaterial);
+	}
+
+	UpdateCropMeshForStage(CurrentStage);
+	UpdateHealthBarVisuals();
+	OnStageChanged(CurrentStage);
+}
+
+void AFarmPlotBase::UpdateHealthBarVisuals()
+{
+	if (!HealthBarRoot || !HealthBarBgMesh || !HealthBarFillMesh)
+	{
+		return;
+	}
+
+	bool bIsNight = false;
+	if (UWorld* World = GetWorld())
+	{
+		if (UGameInstance* GI = World->GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				bIsNight = Sub->IsNightWindow() && !Sub->bIsStartMenuActive;
+			}
+		}
+	}
+
+	const bool bShowBar = IsCombatWorldPlot() && HasLivingCrop() && bIsNight;
+	HealthBarRoot->SetVisibility(bShowBar, true);
+	HealthBarBgMesh->SetVisibility(bShowBar);
+	HealthBarFillMesh->SetVisibility(bShowBar);
+
+	if (!bShowBar)
+	{
+		return;
+	}
+
+	const float HealthPct = (MaxCropHealth > 0.0f) ? FMath::Clamp(CurrentCropHealth / MaxCropHealth, 0.0f, 1.0f) : 0.0f;
+	const float FullBarWidth = 0.86f;
+	const float FillWidth = FMath::Max(0.01f, FullBarWidth * HealthPct);
+	// Anchor left edge so the bar drains cleanly from right to left
+	const float LeftOffsetY = -0.5f * (FullBarWidth - FillWidth) * 100.0f;
+	HealthBarFillMesh->SetRelativeScale3D(FVector(0.03f, FillWidth, 0.095f));
+	HealthBarFillMesh->SetRelativeLocation(FVector(1.0f, LeftOffsetY, 0.0f));
+
+	if (HealthBarFillMID)
+	{
+		FLinearColor BarColor;
+		if (HealthPct > 0.55f)
+		{
+			BarColor = FLinearColor(0.12f, 0.92f, 0.22f, 1.0f); // Healthy Green
+		}
+		else if (HealthPct > 0.28f)
+		{
+			BarColor = FLinearColor(0.98f, 0.78f, 0.08f, 1.0f); // Warning Yellow
+		}
+		else
+		{
+			BarColor = FLinearColor(0.96f, 0.10f, 0.08f, 1.0f); // Critical Red
+		}
+		HealthBarFillMID->SetVectorParameterValue(TEXT("Color"), BarColor);
+		HealthBarFillMID->SetVectorParameterValue(TEXT("Emissive"), BarColor * 1.4f);
+	}
+}
+
+bool AFarmPlotBase::PlantSeed(FName SeedID, float InStageDuration)
+{
+	if (!CanPlant())
+	{
+		UE_LOG(LogGameJam_Shift_2026, Verbose, TEXT("PlantSeed failed: Plot %s is not empty (CurrentStage: %d)."),
+			*GetName(), static_cast<int32>(CurrentStage));
+		return false;
+	}
+
+	if (SeedID.IsNone())
+	{
+		UE_LOG(LogGameJam_Shift_2026, Warning, TEXT("PlantSeed failed: SeedID is None on plot %s."), *GetName());
+		return false;
+	}
+
+	PlantedSeedID = SeedID;
+	if (!bPreserveConfiguredYield)
+	{
+		StageDuration = FMath::Max(1.0f, InStageDuration);
+	}
+	CurrentStage = ECropStage::Planted;
+	bIsWatered = false;
+	CurrentCropHealth = MaxCropHealth;
+
+	ConfigureVisualsForSeed(SeedID);
 
 	if (SoilMesh && DrySoilMaterial && !bIsWatered)
 	{
@@ -378,6 +631,7 @@ bool AFarmPlotBase::PlantSeed(FName SeedID, float InStageDuration)
 	}
 
 	UpdateCropMeshForStage(CurrentStage);
+	UpdateHealthBarVisuals();
 	OnPlanted(SeedID);
 	OnStageChanged(CurrentStage);
 

@@ -167,8 +167,63 @@ void UDimensionShiftSubsystem::HandleFarmLevelShown()
 				World->SpawnActor<AFarmHouseActor>(AFarmHouseActor::StaticClass(), FarmWorldOffset + FVector(-1950.0f, -3150.0f, 0.0f), FRotator::ZeroRotator, Params);
 				UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned AFarmHouseActor beside the Barn."));
 			}
+
+			SyncFarmPlotsToCombat(World);
 		}
 	}
+}
+
+void UDimensionShiftSubsystem::SyncFarmPlotsToCombat(UWorld* World) const
+{
+	if (!World)
+	{
+		return;
+	}
+
+	TArray<AFarmPlotBase*> FarmPlots;
+	TArray<AFarmPlotBase*> CombatPlots;
+	for (TActorIterator<AFarmPlotBase> It(World); It; ++It)
+	{
+		AFarmPlotBase* Plot = *It;
+		if (!IsValid(Plot))
+		{
+			continue;
+		}
+		if (Plot->GetActorLocation().Z < -10000.0f)
+		{
+			FarmPlots.Add(Plot);
+		}
+		else
+		{
+			CombatPlots.Add(Plot);
+		}
+	}
+
+	int32 SyncedCount = 0;
+	for (AFarmPlotBase* CombatPlot : CombatPlots)
+	{
+		const FVector ExpectedFarmLoc = CombatPlot->GetActorLocation() + FarmWorldOffset;
+		AFarmPlotBase* BestFarmPlot = nullptr;
+		float BestDistSq = 250.0f * 250.0f;
+
+		for (AFarmPlotBase* FarmPlot : FarmPlots)
+		{
+			const float DistSq = FVector::DistSquared2D(FarmPlot->GetActorLocation(), ExpectedFarmLoc);
+			if (DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				BestFarmPlot = FarmPlot;
+			}
+		}
+
+		if (BestFarmPlot)
+		{
+			CombatPlot->ApplyMirroredState(BestFarmPlot);
+			++SyncedCount;
+		}
+	}
+
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Mirrored %d Farm plots -> Combat world."), SyncedCount);
 }
 
 void UDimensionShiftSubsystem::ApplyDimensionLighting(UWorld* World, EGameDimension Dimension) const
@@ -607,6 +662,11 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 	ApplyDimensionLighting(World, CurrentDimension);
 	UpdateFarmSunForTimeOfDay(World);
 
+	if (CurrentDimension == EGameDimension::Combat)
+	{
+		SyncFarmPlotsToCombat(World);
+	}
+
 	// Broadcast event to notify audio, camera shake, visual effects, and UI
 	OnDimensionShifted.Broadcast(CurrentDimension, TargetLocation);
 
@@ -863,6 +923,7 @@ void UDimensionShiftSubsystem::TickDayNightClock(UWorld* World, float DeltaTime)
 	}
 	else if (!bWasNight && bNowNight)
 	{
+		SyncFarmPlotsToCombat(World);
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(9181, 5.0f, FColor::Red,
@@ -901,6 +962,10 @@ void UDimensionShiftSubsystem::AdvanceTimeByRealMinute(UWorld* WorldContext)
 
 	if (World)
 	{
+		if (!bWasNight && bNowNight)
+		{
+			SyncFarmPlotsToCombat(World);
+		}
 		UpdateFarmSunForTimeOfDay(World);
 	}
 

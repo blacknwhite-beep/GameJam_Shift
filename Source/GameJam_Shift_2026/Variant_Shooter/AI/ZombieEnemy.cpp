@@ -4,7 +4,9 @@
 #include "Variant_Shooter/AI/ZombieAnimInstance.h"
 #include "AIController.h"
 #include "DimensionShiftSubsystem.h"
+#include "Farming/FarmPlotBase.h"
 #include "ShooterGameMode.h"
+#include "EngineUtils.h"
 #include "Animation/AnimSequence.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -162,11 +164,13 @@ void AZombieEnemy::Tick(float DeltaTime)
 
 	// Pause cleanly if player shifted down into the Farm world or while the Start Menu is active (zombies roam instead of attacking)
 	bool bStartMenuOpen = false;
+	bool bIsNighttime = false;
 	if (UGameInstance* GI = World->GetGameInstance())
 	{
 		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
 		{
 			bStartMenuOpen = Sub->bIsStartMenuActive;
+			bIsNighttime = Sub->IsNightWindow();
 		}
 	}
 
@@ -219,6 +223,28 @@ void AZombieEnemy::Tick(float DeltaTime)
 	const float Now = World->GetTimeSeconds();
 	const FVector MyLoc = GetActorLocation();
 	const FVector PlayerLoc = PlayerPawn->GetActorLocation();
+	const float DistToPlayer = FVector::Dist(MyLoc, PlayerLoc);
+
+	// During Nighttime ONLY, find the nearest living mirrored crop in the Combat world so zombies attack planted crops as well as the player!
+	AFarmPlotBase* TargetCrop = nullptr;
+	float DistToCrop = FLT_MAX;
+	if (bIsNighttime)
+	{
+		for (TActorIterator<AFarmPlotBase> It(World); It; ++It)
+		{
+			AFarmPlotBase* Plot = *It;
+			if (!IsValid(Plot) || !Plot->IsCombatWorldPlot() || !Plot->HasLivingCrop())
+			{
+				continue;
+			}
+			const float D = FVector::Dist2D(MyLoc, Plot->GetActorLocation());
+			if (D < 3600.0f && D < DistToCrop)
+			{
+				DistToCrop = D;
+				TargetCrop = Plot;
+			}
+		}
+	}
 
 	bCanSeePlayer = CanSeePlayer(PlayerPawn);
 	if (bCanSeePlayer)
@@ -236,7 +262,38 @@ void AZombieEnemy::Tick(float DeltaTime)
 		StopAIMovement();
 	}
 
-	if (bCanSeePlayer)
+	// Choose between attacking the Player vs attacking a planted Crop at night:
+	// - If the player is close (< 450 cm) or closer than the crop, prioritize the player;
+	// - Otherwise, during nighttime, charge and attack the nearest living planted crop!
+	const bool bTargetCropThisTick = (bIsNighttime && TargetCrop != nullptr)
+		&& (!bCanSeePlayer || (DistToPlayer > 450.0f && DistToCrop < DistToPlayer * 0.90f));
+
+	if (bTargetCropThisTick)
+	{
+		const FVector CropLoc = TargetCrop->GetActorLocation();
+		const FVector ToCrop2D = (CropLoc - MyLoc).GetSafeNormal2D();
+		if (!ToCrop2D.IsNearlyZero())
+		{
+			const FRotator DesiredRot(0.0f, ToCrop2D.Rotation().Yaw, 0.0f);
+			SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredRot, DeltaTime, 12.0f));
+		}
+
+		StopAIMovement();
+		const float CropDist2D = FVector::Dist2D(MyLoc, CropLoc);
+		if (CropDist2D <= FMath::Max(MeleeRange, 155.0f))
+		{
+			if (Now - LastAttackTime >= AttackCooldown)
+			{
+				LastAttackTime = Now;
+				PerformMeleeAttack(TargetCrop);
+			}
+		}
+		else
+		{
+			AddMovementInput(ToCrop2D, 1.0f);
+		}
+	}
+	else if (bCanSeePlayer)
 	{
 		// Turn smoothly to face the player, then chase or attack while in line of sight
 		const FVector ToPlayer2D = (PlayerLoc - MyLoc).GetSafeNormal2D();
@@ -247,8 +304,7 @@ void AZombieEnemy::Tick(float DeltaTime)
 		}
 
 		StopAIMovement();
-		const float Dist = FVector::Dist(MyLoc, PlayerLoc);
-		if (Dist <= MeleeRange)
+		if (DistToPlayer <= MeleeRange)
 		{
 			if (Now - LastAttackTime >= AttackCooldown)
 			{
@@ -290,7 +346,8 @@ void AZombieEnemy::Tick(float DeltaTime)
 
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
-		MoveComp->MaxWalkSpeed = bAwarePlayer ? ZombieMoveSpeed : ZombieMoveSpeed * RoamSpeedScale;
+		const bool bChasing = bAwarePlayer || bTargetCropThisTick;
+		MoveComp->MaxWalkSpeed = bChasing ? ZombieMoveSpeed : ZombieMoveSpeed * RoamSpeedScale;
 	}
 
 	UpdateLocomotionAnimation();
@@ -491,7 +548,16 @@ void AZombieEnemy::PerformMeleeAttack(AActor* TargetActor)
 		UGameplayStatics::PlaySoundAtLocation(this, AttackGroanSound, GetActorLocation());
 	}
 
-	UGameplayStatics::ApplyDamage(TargetActor, MeleeDamage, GetController(), this, nullptr);
+	if (AFarmPlotBase* TargetCrop = Cast<AFarmPlotBase>(TargetActor))
+	{
+		// Kill planted crops in 5 to 6 zombie hits (100 MaxCropHealth / 17..20 damage per hit)
+		const float CropHitDamage = FMath::FRandRange(17.0f, 20.0f);
+		TargetCrop->ReceiveZombieAttack(CropHitDamage);
+	}
+	else
+	{
+		UGameplayStatics::ApplyDamage(TargetActor, MeleeDamage, GetController(), this, nullptr);
+	}
 }
 
 void AZombieEnemy::Die()

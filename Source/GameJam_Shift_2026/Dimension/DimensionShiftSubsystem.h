@@ -229,6 +229,10 @@ public:
 	/** Updates the Farm DirectionalLight rotation, intensity, and color to match CurrentTimeOfDay (never touches Combat). */
 	void UpdateFarmSunForTimeOfDay(UWorld* World) const;
 
+	/** Mirrors all planted Farm-world crops (Z < -10000) onto their matching Combat-world plots (Z > -10000). */
+	UFUNCTION(BlueprintCallable, Category = "Dimension Shift|Farm Level")
+	void SyncFarmPlotsToCombat(UWorld* World) const;
+
 	/** Returns formatted 24-hour string like "06:00" or "23:45". */
 	FString GetFormattedTime24H() const;
 
