@@ -6,6 +6,7 @@
 #include "DimensionShiftSubsystem.h"
 #include "ShooterGameMode.h"
 #include "Animation/AnimSequence.h"
+#include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -31,6 +32,10 @@ AZombieEnemy::AZombieEnemy()
 	if (UCapsuleComponent* Cap = GetCapsuleComponent())
 	{
 		Cap->SetCapsuleSize(34.0f, 90.0f);
+		if (UCameraComponent* FPCam = GetFirstPersonCameraComponent())
+		{
+			FPCam->SetupAttachment(Cap);
+		}
 	}
 
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
@@ -134,10 +139,11 @@ void AZombieEnemy::Tick(float DeltaTime)
 		{
 			CrawlRockTime += DeltaTime * 6.5f;
 		}
-		const float SideRock = FMath::Sin(CrawlRockTime) * 7.5f * Smooth;
-		const float TargetPitchRoll = 78.0f * Smooth;
-		const float TargetMeshZ = FMath::Lerp(DefaultMeshRelativeZ, -18.0f, Smooth);
-		GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, TargetMeshZ));
+		const float SideRock = FMath::Sin(CrawlRockTime) * 6.5f * Smooth;
+		const float TargetPitchRoll = 64.0f * Smooth;
+		const float TargetMeshZ = FMath::Lerp(DefaultMeshRelativeZ, -12.0f, Smooth);
+		const float TargetMeshX = -65.0f * Smooth;
+		GetMesh()->SetRelativeLocation(FVector(TargetMeshX, 0.0f, TargetMeshZ));
 		GetMesh()->SetRelativeRotation(FRotator(SideRock, MeshYawOffset, TargetPitchRoll));
 	}
 
@@ -168,6 +174,10 @@ void AZombieEnemy::Tick(float DeltaTime)
 	{
 		bAwarePlayer = false;
 		bCanSeePlayer = false;
+		if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
+		{
+			ZAnim->SetHeadLookAngles(!bHeadSevered && !bIsDead, bIsCrawling, 15.0f, 0.0f);
+		}
 		RoamAround(World->GetTimeSeconds());
 		FaceVelocity(DeltaTime);
 		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
@@ -185,21 +195,25 @@ void AZombieEnemy::Tick(float DeltaTime)
 		bCanSeePlayer = false;
 		if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
 		{
-			ZAnim->SetHeadLookTarget(false, bIsCrawling, FVector(0.0f, 300.0f, 150.0f));
+			ZAnim->SetHeadLookAngles(false, bIsCrawling, 15.0f, 0.0f);
 		}
 		UpdateLocomotionAnimation();
 		return;
 	}
 
-	// Update pre-finalization head look-at target in SkelMesh component space (always looks at player even while crawling!)
+	// Update pre-finalization head look-at angles so the zombie's upper spine, neck, and head always crane up at the player!
 	if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
 	{
-		if (USkeletalMeshComponent* SkelMesh = GetMesh())
-		{
-			const FVector PlayerEyeWS = PlayerPawn->GetActorLocation() + FVector(0.0f, 0.0f, 52.0f);
-			const FVector TargetEyeCS = SkelMesh->GetComponentTransform().InverseTransformPosition(PlayerEyeWS);
-			ZAnim->SetHeadLookTarget(!bHeadSevered && !bIsDead, bIsCrawling, TargetEyeCS);
-		}
+		const FVector PlayerEyeWS = PlayerPawn->GetActorLocation() + FVector(0.0f, 0.0f, 52.0f);
+		const FVector ZombieHeadApproxWS = GetActorLocation()
+			+ GetActorForwardVector() * (bIsCrawling ? 45.0f : 15.0f)
+			+ FVector(0.0f, 0.0f, bIsCrawling ? 28.0f : 65.0f);
+		const FVector LocalToPlayer = GetActorTransform().InverseTransformVectorNoScale(PlayerEyeWS - ZombieHeadApproxWS);
+		const float ForwardDist = FMath::Max(35.0f, LocalToPlayer.X);
+		const float HorizDist = FMath::Max(45.0f, FVector2D(ForwardDist, LocalToPlayer.Y).Size());
+		const float DesiredYawDeg = FMath::Clamp(FMath::RadiansToDegrees(FMath::Atan2(LocalToPlayer.Y, ForwardDist)), -65.0f, 65.0f);
+		const float DesiredPitchDeg = FMath::Clamp(FMath::RadiansToDegrees(FMath::Atan2(LocalToPlayer.Z, HorizDist)), bIsCrawling ? 8.0f : -30.0f, 55.0f);
+		ZAnim->SetHeadLookAngles(!bHeadSevered && !bIsDead, bIsCrawling, DesiredPitchDeg, DesiredYawDeg);
 	}
 
 	const float Now = World->GetTimeSeconds();
@@ -481,7 +495,7 @@ void AZombieEnemy::Die()
 
 		if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
 		{
-			ZAnim->SetHeadLookTarget(false, bIsCrawling, FVector(0.0f, 300.0f, 150.0f));
+			ZAnim->SetHeadLookAngles(false, bIsCrawling, 0.0f, 0.0f);
 			ZAnim->PlayZombieSequence(DeathAnim, false, DeathPlayRate);
 		}
 		CurrentLoopAnim = nullptr;

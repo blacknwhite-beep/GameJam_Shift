@@ -5,6 +5,12 @@
 #include "Animation/AnimNodeBase.h"
 #include "BonePose.h"
 
+UZombieAnimInstance::UZombieAnimInstance(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
+	, Proxy(this)
+{
+}
+
 void UZombieAnimInstance::PlayZombieSequence(UAnimSequence* NewSequence, bool bLooping, float PlayRate)
 {
 	if (DesiredSequence != NewSequence || bDesiredLooping != bLooping || !bLooping)
@@ -21,11 +27,18 @@ void UZombieAnimInstance::SetZombiePlayRate(float PlayRate)
 	DesiredPlayRate = PlayRate;
 }
 
-void UZombieAnimInstance::SetHeadLookTarget(bool bEnable, bool bCrawling, const FVector& InTargetEyeCS)
+void UZombieAnimInstance::SetHeadLookAngles(bool bEnable, bool bCrawling, float InPitchDeg, float InYawDeg)
 {
 	bDesiredEnableHeadLook = bEnable;
 	bDesiredCrawling = bCrawling;
-	DesiredTargetEyeCS = InTargetEyeCS;
+	TargetPitchDeg = InPitchDeg;
+	TargetYawDeg = InYawDeg;
+}
+
+void FZombieAnimInstanceProxy::Initialize(UAnimInstance* InAnimInstance)
+{
+	Super::Initialize(InAnimInstance);
+	UpdateCounter.Increment();
 }
 
 void FZombieAnimInstanceProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaSeconds)
@@ -34,7 +47,7 @@ void FZombieAnimInstanceProxy::PreUpdate(UAnimInstance* InAnimInstance, float De
 
 	if (UZombieAnimInstance* ZAnim = Cast<UZombieAnimInstance>(InAnimInstance))
 	{
-		if (ZAnim->bSequenceChanged)
+		if (ZAnim->bSequenceChanged || ActiveSequence != ZAnim->DesiredSequence)
 		{
 			ActiveSequence = ZAnim->DesiredSequence;
 			bSequenceLooping = ZAnim->bDesiredLooping;
@@ -44,12 +57,15 @@ void FZombieAnimInstanceProxy::PreUpdate(UAnimInstance* InAnimInstance, float De
 		SequencePlayRate = ZAnim->DesiredPlayRate;
 		bEnableHeadLook = ZAnim->bDesiredEnableHeadLook;
 		bIsCrawling = ZAnim->bDesiredCrawling;
-		TargetEyeCS = ZAnim->DesiredTargetEyeCS;
+		DesiredPitchDeg = ZAnim->TargetPitchDeg;
+		DesiredYawDeg = ZAnim->TargetYawDeg;
 	}
 }
 
 void FZombieAnimInstanceProxy::Update(float DeltaSeconds)
 {
+	UpdateCounter.Increment();
+
 	if (!ActiveSequence)
 	{
 		return;
@@ -77,6 +93,11 @@ void FZombieAnimInstanceProxy::Update(float DeltaSeconds)
 	}
 }
 
+void FZombieAnimInstanceProxy::UpdateAnimationNode(const FAnimationUpdateContext& InContext)
+{
+	UpdateCounter.Increment();
+}
+
 bool FZombieAnimInstanceProxy::Evaluate(FPoseContext& Output)
 {
 	if (!ActiveSequence)
@@ -89,7 +110,7 @@ bool FZombieAnimInstanceProxy::Evaluate(FPoseContext& Output)
 	FAnimationPoseData PoseData(Output);
 	ActiveSequence->GetAnimationPose(PoseData, FAnimExtractContext(static_cast<double>(SequenceTime), false));
 
-	// 2. Apply pre-finalization component-space head & neck look-at so GPU skinning always stares at the player!
+	// 2. Apply pre-finalization local-bone-space look-at arch across Spine1, Spine2, Neck, and Head!
 	if (!bEnableHeadLook)
 	{
 		return true;
@@ -97,75 +118,83 @@ bool FZombieAnimInstanceProxy::Evaluate(FPoseContext& Output)
 
 	const FBoneContainer& BoneContainer = Output.Pose.GetBoneContainer();
 	const FReferenceSkeleton& RefSkel = BoneContainer.GetReferenceSkeleton();
-	const int32 HeadMeshIdx = RefSkel.FindBoneIndex(FName("Zombie_Head"));
-	const int32 NeckMeshIdx = RefSkel.FindBoneIndex(FName("Zombie_Neck"));
 
-	if (HeadMeshIdx == INDEX_NONE)
+	const auto GetCompactIdx = [&](const TCHAR* BoneName) -> FCompactPoseBoneIndex
+	{
+		const int32 MeshIdx = RefSkel.FindBoneIndex(FName(BoneName));
+		return (MeshIdx != INDEX_NONE)
+			? BoneContainer.MakeCompactPoseIndex(FMeshPoseBoneIndex(MeshIdx))
+			: FCompactPoseBoneIndex(INDEX_NONE);
+	};
+
+	const FCompactPoseBoneIndex Spine1Idx = GetCompactIdx(TEXT("Zombie_Spine1"));
+	const FCompactPoseBoneIndex Spine2Idx = GetCompactIdx(TEXT("Zombie_Spine2"));
+	const FCompactPoseBoneIndex NeckIdx   = GetCompactIdx(TEXT("Zombie_Neck"));
+	const FCompactPoseBoneIndex HeadIdx   = GetCompactIdx(TEXT("Zombie_Head"));
+
+	if (HeadIdx == INDEX_NONE && NeckIdx == INDEX_NONE)
 	{
 		return true;
 	}
 
-	const FCompactPoseBoneIndex HeadCompactIdx = BoneContainer.MakeCompactPoseIndex(FMeshPoseBoneIndex(HeadMeshIdx));
-	if (HeadCompactIdx == INDEX_NONE)
+	// While crawling belly-down (mesh tilted forward 64 deg + walk animation 30 deg hunch = 94 deg face-down),
+	// we arch the upper spine, neck, and head UP by 94 + DesiredPitchDeg (100..135 deg total upward crane)
+	// so the zombie's chest, neck, and face lift right off the dirt and stare straight at the player!
+	const float TargetTotalPitchUpDeg = bIsCrawling
+		? FMath::Clamp(94.0f + DesiredPitchDeg, 96.0f, 136.0f)
+		: FMath::Clamp(18.0f + DesiredPitchDeg, -25.0f, 65.0f);
+	const float TargetTotalYawDeg = FMath::Clamp(DesiredYawDeg, -65.0f, 65.0f);
+
+	SmoothedPitchUpDeg = FMath::FInterpTo(SmoothedPitchUpDeg, TargetTotalPitchUpDeg, 0.016f, 10.0f);
+	SmoothedYawDeg     = FMath::FInterpTo(SmoothedYawDeg, TargetTotalYawDeg, 0.016f, 10.0f);
+
+	// On SK_Zombie (confirmed in Skeleton Editor):
+	//   Local +X (Red arrow)   = Left ear/shoulder (horizontal pitch hinge: +angle lifts face & spine UP off the floor!)
+	//   Local +Y (Green arrow) = Down the spine (yaw/twist axis: turns face left/right toward the player!)
+	//   Local +Z (Blue arrow)  = Straight out of the zombie's nose/face!
+	const auto ApplyLocalArchAndYaw = [&](FCompactPoseBoneIndex BoneIdx, float PitchWeight, float YawWeight)
 	{
-		return true;
-	}
+		if (BoneIdx == INDEX_NONE)
+		{
+			return;
+		}
+		const float PitchRad = FMath::DegreesToRadians(SmoothedPitchUpDeg * PitchWeight);
+		const float YawRad   = FMath::DegreesToRadians(SmoothedYawDeg * YawWeight);
+		const FQuat PitchQuat(FVector(1.0f, 0.0f, 0.0f), PitchRad);
+		const FQuat YawQuat(FVector(0.0f, 1.0f, 0.0f), YawRad);
+		FTransform& BoneLocal = Output.Pose[BoneIdx];
+		BoneLocal.SetRotation((BoneLocal.GetRotation() * PitchQuat * YawQuat).GetNormalized());
+	};
 
-	FCSPose<FCompactPose> CSPose;
-	CSPose.InitPose(Output.Pose);
-
-	const FTransform HeadCS = CSPose.GetComponentSpaceTransform(HeadCompactIdx);
-	const FVector DesiredDirCS = (TargetEyeCS - HeadCS.GetLocation()).GetSafeNormal();
-	if (DesiredDirCS.IsNearlyZero())
+	if (bIsCrawling)
 	{
-		return true;
-	}
-
-	// On SK_Zombie, Zombie_Head's local +Z (Blue arrow) points straight out of the zombie's nose/face!
-	const FVector CurrentFaceCS = HeadCS.GetRotation().RotateVector(FVector(0.0f, 0.0f, 1.0f)).GetSafeNormal();
-	FQuat DesiredDeltaQuat = FQuat::FindBetweenNormals(CurrentFaceCS, DesiredDirCS);
-
-	// Clamp crane angle: 140 deg while crawling belly-down so head cranes all the way up at the player; 95 deg standing
-	FVector Axis;
-	float AngleRad = 0.0f;
-	DesiredDeltaQuat.ToAxisAndAngle(Axis, AngleRad);
-	const float MaxAngleRad = FMath::DegreesToRadians(bIsCrawling ? 140.0f : 95.0f);
-	if (AngleRad > MaxAngleRad)
-	{
-		DesiredDeltaQuat = FQuat(Axis, MaxAngleRad);
-	}
-
-	SmoothedHeadLookQuat = FQuat::Slerp(SmoothedHeadLookQuat, DesiredDeltaQuat, 0.25f);
-	SmoothedHeadLookQuat.Normalize();
-
-	const FCompactPoseBoneIndex NeckCompactIdx = (NeckMeshIdx != INDEX_NONE)
-		? BoneContainer.MakeCompactPoseIndex(FMeshPoseBoneIndex(NeckMeshIdx))
-		: FCompactPoseBoneIndex(INDEX_NONE);
-
-	if (NeckCompactIdx != INDEX_NONE)
-	{
-		const FQuat NeckDelta = FQuat::Slerp(FQuat::Identity, SmoothedHeadLookQuat, 0.45f);
-
-		FTransform NeckCS = CSPose.GetComponentSpaceTransform(NeckCompactIdx);
-		const FVector NeckPosCS = NeckCS.GetLocation();
-		NeckCS.SetRotation((NeckDelta * NeckCS.GetRotation()).GetNormalized());
-		CSPose.SetComponentSpaceTransform(NeckCompactIdx, NeckCS);
-
-		// In component space, Head must receive the FULL 100% SmoothedHeadLookQuat around the Neck pivot
-		// so ConvertComponentPosesToLocalPoses yields 45% on Neck + 55% on Head = 100% looking at the player!
-		FTransform NewHeadCS = HeadCS;
-		NewHeadCS.SetLocation(NeckPosCS + NeckDelta.RotateVector(HeadCS.GetLocation() - NeckPosCS));
-		NewHeadCS.SetRotation((SmoothedHeadLookQuat * HeadCS.GetRotation()).GetNormalized());
-		CSPose.SetComponentSpaceTransform(HeadCompactIdx, NewHeadCS);
+		// Distribute the +100..+135 deg upward arch across Spine1 + Spine2 + Neck + Head so the entire upper torso, neck, and head lift off the ground
+		ApplyLocalArchAndYaw(Spine1Idx, 0.22f, 0.00f);
+		ApplyLocalArchAndYaw(Spine2Idx, 0.26f, 0.20f);
+		ApplyLocalArchAndYaw(NeckIdx,   0.28f, 0.40f);
+		ApplyLocalArchAndYaw(HeadIdx,   0.24f, 0.40f);
 	}
 	else
 	{
-		FTransform NewHeadCS = HeadCS;
-		NewHeadCS.SetRotation((SmoothedHeadLookQuat * NewHeadCS.GetRotation()).GetNormalized());
-		CSPose.SetComponentSpaceTransform(HeadCompactIdx, NewHeadCS);
+		// Standing: distribute look-at pitch and yaw across Spine2 + Neck + Head
+		ApplyLocalArchAndYaw(Spine2Idx, 0.20f, 0.15f);
+		ApplyLocalArchAndYaw(NeckIdx,   0.40f, 0.40f);
+		ApplyLocalArchAndYaw(HeadIdx,   0.40f, 0.45f);
 	}
 
-	// Convert the modified component-space pose cleanly back to local-space Output.Pose!
-	FCSPose<FCompactPose>::ConvertComponentPosesToLocalPoses(CSPose, Output.Pose);
+	if ((++DebugEvalCounter % 180) == 1 && HeadIdx != INDEX_NONE)
+	{
+		FCSPose<FCompactPose> CheckCS;
+		CheckCS.InitPose(Output.Pose);
+		const FTransform HeadCS = CheckCS.GetComponentSpaceTransform(HeadIdx);
+		const FVector FaceCS = HeadCS.GetRotation().RotateVector(FVector(0.0f, 0.0f, 1.0f));
+		UE_LOG(LogTemp, Warning, TEXT("[ZOMBIE_HEADLOOK] Crawl=%d PitchUp=%.1f Yaw=%.1f HeadCS=(%.1f, %.1f, %.1f) FaceCS=(%.2f, %.2f, %.2f)"),
+			bIsCrawling ? 1 : 0,
+			SmoothedPitchUpDeg,
+			SmoothedYawDeg,
+			HeadCS.GetLocation().X, HeadCS.GetLocation().Y, HeadCS.GetLocation().Z,
+			FaceCS.X, FaceCS.Y, FaceCS.Z);
+	}
+
 	return true;
 }
