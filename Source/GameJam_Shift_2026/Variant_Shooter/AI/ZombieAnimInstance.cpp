@@ -145,17 +145,18 @@ bool FZombieAnimInstanceProxy::Evaluate(FPoseContext& Output)
 	if (NeckCompactIdx != INDEX_NONE)
 	{
 		const FQuat NeckDelta = FQuat::Slerp(FQuat::Identity, SmoothedHeadLookQuat, 0.45f);
-		const FQuat HeadDelta = FQuat::Slerp(FQuat::Identity, SmoothedHeadLookQuat, 0.55f);
 
 		FTransform NeckCS = CSPose.GetComponentSpaceTransform(NeckCompactIdx);
 		const FVector NeckPosCS = NeckCS.GetLocation();
 		NeckCS.SetRotation((NeckDelta * NeckCS.GetRotation()).GetNormalized());
 		CSPose.SetComponentSpaceTransform(NeckCompactIdx, NeckCS);
 
-		// Re-fetch HeadCS after Neck rotation and apply the remaining 55% Head crane
-		FTransform UpdatedHeadCS = CSPose.GetComponentSpaceTransform(HeadCompactIdx);
-		UpdatedHeadCS.SetRotation((HeadDelta * UpdatedHeadCS.GetRotation()).GetNormalized());
-		CSPose.SetComponentSpaceTransform(HeadCompactIdx, UpdatedHeadCS);
+		// In component space, Head must receive the FULL 100% SmoothedHeadLookQuat around the Neck pivot
+		// so ConvertComponentPosesToLocalPoses yields 45% on Neck + 55% on Head = 100% looking at the player!
+		FTransform NewHeadCS = HeadCS;
+		NewHeadCS.SetLocation(NeckPosCS + NeckDelta.RotateVector(HeadCS.GetLocation() - NeckPosCS));
+		NewHeadCS.SetRotation((SmoothedHeadLookQuat * HeadCS.GetRotation()).GetNormalized());
+		CSPose.SetComponentSpaceTransform(HeadCompactIdx, NewHeadCS);
 	}
 	else
 	{
