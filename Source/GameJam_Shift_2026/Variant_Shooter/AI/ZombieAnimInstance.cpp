@@ -121,8 +121,9 @@ bool FZombieAnimInstanceProxy::Evaluate(FPoseContext& Output)
 		return true;
 	}
 
-	// In SK_Zombie component space, the zombie's face naturally points along +Y (MeshYawOffset = -90 aligns +Y to actor +X)
-	FQuat DesiredDeltaQuat = FQuat::FindBetweenNormals(FVector(0.0f, 1.0f, 0.0f), DesiredDirCS);
+	// On SK_Zombie, Zombie_Head's local +Z (Blue arrow) points straight out of the zombie's nose/face!
+	const FVector CurrentFaceCS = HeadCS.GetRotation().RotateVector(FVector(0.0f, 0.0f, 1.0f)).GetSafeNormal();
+	FQuat DesiredDeltaQuat = FQuat::FindBetweenNormals(CurrentFaceCS, DesiredDirCS);
 
 	// Clamp crane angle: 140 deg while crawling belly-down so head cranes all the way up at the player; 95 deg standing
 	FVector Axis;
