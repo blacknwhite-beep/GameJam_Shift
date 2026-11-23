@@ -108,7 +108,60 @@ def build_combat_atmosphere_and_audio():
         amb.set_folder_path("Combat/Audio")
 
 
+def ensure_fast_zombie_blueprint_ready():
+    mat_dir = "/Game/Dev_Blueprint/Characters/Zombie/Materials"
+    tex_dir = "/Game/Dev_Blueprint/Characters/Zombie/Textures"
+    anim_dir = "/Game/Dev_Blueprint/Characters/Zombie/Animations"
+
+    mi_fast = unreal.load_asset(f"{mat_dir}/MI_Zombie_Fast_Skin")
+    if mi_fast:
+        for param, suffix in (
+            ("Albedo", "Albedo"),
+            ("Normal", "Normal"),
+            ("Metallic", "Metallic"),
+            ("Gloss", "Gloss"),
+            ("AO", "AO"),
+            ("Emission", "Emission"),
+        ):
+            tex = unreal.load_asset(f"{tex_dir}/T_ZombieSet2_{suffix}")
+            if tex:
+                unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(mi_fast, param, tex)
+        eal.save_loaded_asset(mi_fast)
+
+    bp_fast = unreal.load_asset(f"{ENEMY_DIR}/BP_Zombie_Fast")
+    if bp_fast:
+        cdo = unreal.get_default_object(bp_fast.generated_class())
+        cdo.set_editor_property("CurrentHP", 75.0)
+        cdo.set_editor_property("ZombieMoveSpeed", 380.0)
+        cdo.set_editor_property("ReferenceAnimSpeed", 380.0)
+        cdo.set_editor_property("bUseRunAnim", True)
+        cdo.set_editor_property("MeleeDamage", 12.0)
+        cdo.set_editor_property("MeleeRange", 155.0)
+        cdo.set_editor_property("AttackCooldown", 0.75)
+        if mi_fast:
+            cdo.set_editor_property("ZombieSkinMaterial", mi_fast)
+        for prop, anim_name in (
+            ("IdleAnim", "Anim_Zombie_idle2"),
+            ("WalkAnim", "Anim_Zombie_walk"),
+            ("RunAnim", "Anim_Zombie_run"),
+            ("AttackAnim", "Anim_Zombie_atack2"),
+            ("DeathAnim", "Anim_Zombie_death2"),
+        ):
+            anim = unreal.load_asset(f"{anim_dir}/{anim_name}")
+            if anim:
+                cdo.set_editor_property(prop, anim)
+        mesh_comp = cdo.get_editor_property("Mesh")
+        if mesh_comp and mi_fast:
+            count = max(1, mesh_comp.get_num_materials())
+            mesh_comp.set_editor_property("override_materials", [mi_fast] * count)
+        unreal.BlueprintEditorLibrary.compile_blueprint(bp_fast)
+        eal.save_loaded_asset(bp_fast)
+        log("Verified BP_Zombie_Fast (Speed=380, bUseRunAnim=True, T_ZombieSet2 skin, full dismemberment & head look-at)")
+
+
 def place_combat_spawners_nav_and_starts():
+    ensure_fast_zombie_blueprint_ready()
+
     # Large NavMesh covering the entire flat Farm valley (Barn, Field, Paths, Meadows, Pond bank)
     nav = actor_sub.spawn_actor_from_class(
         unreal.NavMeshBoundsVolume,
@@ -126,14 +179,18 @@ def place_combat_spawners_nav_and_starts():
 
     if spawner_cls and slow_cls and fast_cls:
         spawns = [
-            (-1200.0, -1800.0, 45.0, slow_cls, "ZombieSpawner_BarnWest_Slow", 1.5),
-            (-200.0, -2100.0, 90.0, fast_cls, "ZombieSpawner_BarnFront_Fast", 2.0),
-            (-1800.0, 0.0, 0.0, slow_cls, "ZombieSpawner_MainPath_Slow", 2.0),
-            (-1500.0, 1400.0, -45.0, fast_cls, "ZombieSpawner_PondPath_Fast", 2.5),
-            (1500.0, -900.0, 150.0, slow_cls, "ZombieSpawner_FieldSE_Slow", 2.5),
-            (1500.0, 900.0, -150.0, fast_cls, "ZombieSpawner_FieldNE_Fast", 3.0),
-            (-600.0, 1450.0, -75.0, slow_cls, "ZombieSpawner_NorthMeadow_Slow", 3.0),
-            (400.0, -1450.0, 110.0, fast_cls, "ZombieSpawner_SouthMeadow_Fast", 3.5),
+            # Immediate central road & yard spawners (mix of Fast Sprinters & Slow Shamblers in clear sight of (0,0))
+            (-920.0, -320.0, 20.0, fast_cls, "ZombieSpawner_CenterWest_Fast", 1.0),
+            (-1350.0, 0.0, 0.0, slow_cls, "ZombieSpawner_MainPath_Slow", 1.2),
+            (-700.0, -980.0, 55.0, fast_cls, "ZombieSpawner_BarnPath_Fast", 1.5),
+            (-520.0, 920.0, -60.0, slow_cls, "ZombieSpawner_NorthYard_Slow", 1.8),
+            (320.0, -920.0, 110.0, fast_cls, "ZombieSpawner_FieldGate_Fast", 2.0),
+            # Outer perimeter wave spawners
+            (-1150.0, -1850.0, 50.0, slow_cls, "ZombieSpawner_BarnWest_Slow", 2.2),
+            (-350.0, -1950.0, 80.0, fast_cls, "ZombieSpawner_BarnFront_Fast", 2.5),
+            (-1450.0, 1250.0, -40.0, fast_cls, "ZombieSpawner_PondPath_Fast", 2.8),
+            (1450.0, -850.0, 150.0, slow_cls, "ZombieSpawner_FieldSE_Slow", 3.0),
+            (1450.0, 850.0, -150.0, slow_cls, "ZombieSpawner_FieldNE_Slow", 3.2),
         ]
         for x, y, yaw, npc_cls, label, delay in spawns:
             sp = actor_sub.spawn_actor_from_class(
@@ -143,11 +200,11 @@ def place_combat_spawners_nav_and_starts():
             )
             sp.set_editor_property("NPCClass", npc_cls)
             sp.set_editor_property("InitialSpawnDelay", delay)
-            sp.set_editor_property("SpawnCount", 6)
-            sp.set_editor_property("RespawnDelay", 4.5)
+            sp.set_editor_property("SpawnCount", 8)
+            sp.set_editor_property("RespawnDelay", 4.0)
             sp.set_actor_label(label)
             sp.set_folder_path("Combat/Zombies")
-        log(f"Placed {len(spawns)} Zombie Spawners around the dark farm valley")
+        log(f"Placed {len(spawns)} Zombie Spawners (5 Fast + 5 Slow) around the dark farm valley")
     else:
         log(f"WARNING: Missing spawner/zombie classes: spawner={spawner_cls}, slow={slow_cls}, fast={fast_cls}")
 

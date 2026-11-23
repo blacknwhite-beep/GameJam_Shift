@@ -263,7 +263,7 @@ void AZombieEnemy::Tick(float DeltaTime)
 	}
 	else if (bAwarePlayer)
 	{
-		// Lost sight: investigate the last place the player was seen
+		// Lost sight: investigate the last place the player was seen (with direct fallback steering if NavMesh pathing stalls)
 		if (!bMemoryMoveIssued)
 		{
 			if (AAIController* AICon = Cast<AAIController>(GetController()))
@@ -272,11 +272,19 @@ void AZombieEnemy::Tick(float DeltaTime)
 			}
 			bMemoryMoveIssued = true;
 		}
+		if (GetVelocity().Size2D() < 20.0f && FVector::Dist2D(MyLoc, LastKnownPlayerLocation) > 90.0f)
+		{
+			AddMovementInput((LastKnownPlayerLocation - MyLoc).GetSafeNormal2D(), 1.0f);
+		}
 		FaceVelocity(DeltaTime);
 	}
 	else
 	{
 		RoamAround(Now);
+		if (bHasRoamTarget && GetVelocity().Size2D() < 15.0f && FVector::Dist2D(MyLoc, RoamTarget) > 90.0f)
+		{
+			AddMovementInput((RoamTarget - MyLoc).GetSafeNormal2D(), 1.0f);
+		}
 		FaceVelocity(DeltaTime);
 	}
 
@@ -296,28 +304,50 @@ bool AZombieEnemy::CanSeePlayer(const APawn* PlayerPawn) const
 		return false;
 	}
 
-	const FVector EyeLoc = GetActorLocation() + FVector(0.0f, 0.0f, 60.0f);
-	const FVector TargetLoc = PlayerPawn->GetActorLocation() + FVector(0.0f, 0.0f, 50.0f);
+	const FVector EyeLoc = GetActorLocation() + FVector(0.0f, 0.0f, 75.0f);
+	const FVector TargetLoc = PlayerPawn->GetActorLocation() + FVector(0.0f, 0.0f, 65.0f);
 	const FVector ToTarget = TargetLoc - EyeLoc;
+	const float Dist = ToTarget.Size();
 
-	if (ToTarget.Size() > DetectionRange)
+	const float EffectiveRange = bUseRunAnim ? FMath::Max(DetectionRange, 3200.0f) : DetectionRange;
+	if (Dist > EffectiveRange)
 	{
 		return false;
 	}
 
-	const FVector Forward2D = GetActorForwardVector().GetSafeNormal2D();
-	const FVector ToTarget2D = ToTarget.GetSafeNormal2D();
-	if (FVector::DotProduct(Forward2D, ToTarget2D) < FMath::Cos(FMath::DegreesToRadians(SightHalfAngle)))
+	// Within close/mid-range (1650 cm for fast sprinters, 1150 cm for shamblers), zombies hear/smell the player in 360 deg!
+	const float HearingRadius = bUseRunAnim ? 1650.0f : 1150.0f;
+	if (Dist > HearingRadius)
 	{
-		return false;
+		const FVector Forward2D = GetActorForwardVector().GetSafeNormal2D();
+		const FVector ToTarget2D = ToTarget.GetSafeNormal2D();
+		const float EffectiveHalfAngle = bUseRunAnim ? FMath::Max(SightHalfAngle, 105.0f) : SightHalfAngle;
+		if (FVector::DotProduct(Forward2D, ToTarget2D) < FMath::Cos(FMath::DegreesToRadians(EffectiveHalfAngle)))
+		{
+			return false;
+		}
 	}
 
+	// Within 900 cm, zombies always lock onto the player even around low fences/bushes
+	if (Dist <= 900.0f)
+	{
+		return true;
+	}
+
+	// Trace only solid WorldStatic walls/buildings at upper-head height (Z+110) so low fences & Cozy Nature bushes never blind zombies!
 	FHitResult Hit;
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(ZombieSightTrace), false);
 	Params.AddIgnoredActor(this);
-	if (World->LineTraceSingleByChannel(Hit, EyeLoc, TargetLoc, ECC_Visibility, Params))
+	Params.AddIgnoredActor(PlayerPawn);
+	const FVector HighEye = GetActorLocation() + FVector(0.0f, 0.0f, 110.0f);
+	const FVector HighTarget = PlayerPawn->GetActorLocation() + FVector(0.0f, 0.0f, 110.0f);
+	if (World->LineTraceSingleByChannel(Hit, HighEye, HighTarget, ECC_WorldStatic, Params))
 	{
-		return Hit.GetActor() == PlayerPawn;
+		// Only block sight if the obstacle is tall/solid (like the Barn or Farmhouse), not a small tree branch
+		if (Hit.GetActor() && Hit.GetActor()->GetName().Contains(TEXT("Barn")))
+		{
+			return false;
+		}
 	}
 	return true;
 }
@@ -334,7 +364,7 @@ void AZombieEnemy::RoamAround(float Now)
 	if (bHasRoamTarget)
 	{
 		const bool bArrived = FVector::Dist2D(GetActorLocation(), RoamTarget) < 90.0f;
-		const bool bTimedOut = Now - RoamTargetSetTime > 12.0f;
+		const bool bTimedOut = Now - RoamTargetSetTime > 8.0f;
 		if (bArrived || bTimedOut)
 		{
 			bHasRoamTarget = false;
@@ -362,7 +392,12 @@ void AZombieEnemy::RoamAround(float Now)
 		}
 	}
 
-	NextRoamTime = Now + 0.5f;
+	// Direct fallback roam point if NavMesh is still generating
+	const float Angle = FMath::FRandRange(0.0f, 2.0f * PI);
+	const float Dist = FMath::FRandRange(300.0f, 750.0f);
+	RoamTarget = GetActorLocation() + FVector(FMath::Cos(Angle) * Dist, FMath::Sin(Angle) * Dist, 0.0f);
+	RoamTargetSetTime = Now;
+	bHasRoamTarget = true;
 }
 
 void AZombieEnemy::StopAIMovement()
@@ -773,9 +808,10 @@ void AZombieEnemy::EnterCrawlState()
 		Cap->SetCapsuleSize(34.0f, 36.0f, true);
 	}
 
-	// Slow down to a relentless ground crawl
+	// Slow down to a relentless ground crawl (fast zombies keep a faster frantic crawl matched to WalkAnim reference speed!)
 	ZombieMoveSpeed = FMath::Max(55.0f, ZombieMoveSpeed * 0.38f);
 	bUseRunAnim = false;
+	ReferenceAnimSpeed = 140.0f;
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
 		MoveComp->MaxWalkSpeed = ZombieMoveSpeed;
