@@ -128,6 +128,14 @@ void AZombieEnemy::Tick(float DeltaTime)
 
 	if (bIsDead)
 	{
+		// Smoothly collapse dead crawling zombies flat onto their stomach flush with the ground
+		if (bIsCrawling && GetMesh())
+		{
+			const FVector DeadTargetLoc(-65.0f, 0.0f, -30.0f);
+			const FRotator DeadTargetRot(0.0f, MeshYawOffset, 82.0f);
+			GetMesh()->SetRelativeLocation(FMath::VInterpTo(GetMesh()->GetRelativeLocation(), DeadTargetLoc, DeltaTime, 7.5f));
+			GetMesh()->SetRelativeRotation(FMath::RInterpTo(GetMesh()->GetRelativeRotation(), DeadTargetRot, DeltaTime, 7.5f));
+		}
 		return;
 	}
 
@@ -578,7 +586,7 @@ void AZombieEnemy::Die()
 		}
 	}
 
-	if (DeathAnim && GetMesh())
+	if (GetMesh() && (bIsCrawling || DeathAnim))
 	{
 		bIsDead = true;
 		StopAIMovement();
@@ -590,14 +598,47 @@ void AZombieEnemy::Die()
 			GM->IncrementTeamScore(TeamByte);
 		}
 
-		GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		GetCharacterMovement()->StopMovementImmediately();
-		GetCharacterMovement()->StopActiveMovement();
+		const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : (bIsCrawling ? 36.0f : 90.0f);
+
+		if (UCapsuleComponent* Cap = GetCapsuleComponent())
+		{
+			Cap->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			MoveComp->StopMovementImmediately();
+			MoveComp->StopActiveMovement();
+			MoveComp->DisableMovement();
+		}
+
+		// Snap actor directly onto solid ground so dying zombies (crawling or standing) never float in mid-air
+		if (UWorld* World = GetWorld())
+		{
+			FHitResult GroundHit;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(ZombieDeathGroundSnap), false);
+			Params.AddIgnoredActor(this);
+			const FVector Loc = GetActorLocation();
+			if (World->LineTraceSingleByChannel(GroundHit, Loc + FVector(0.0f, 0.0f, 60.0f), Loc - FVector(0.0f, 0.0f, 400.0f), ECC_WorldStatic, Params))
+			{
+				SetActorLocation(FVector(Loc.X, Loc.Y, GroundHit.ImpactPoint.Z + HalfHeight));
+			}
+		}
 
 		if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
 		{
 			ZAnim->SetHeadLookAngles(false, bIsCrawling, 0.0f, 0.0f);
-			ZAnim->PlayZombieSequence(DeathAnim, false, DeathPlayRate);
+			if (bIsCrawling)
+			{
+				// Do NOT play standing vertical DeathAnim when already crawling on the ground!
+				// Freeze limb crawl cycle while Evaluate slumps the head/chest down and Tick settles the body flat at Roll=82 deg.
+				ZAnim->SetZombiePlayRate(0.0f);
+			}
+			else if (DeathAnim)
+			{
+				GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -HalfHeight));
+				GetMesh()->SetRelativeRotation(FRotator(0.0f, MeshYawOffset, 0.0f));
+				ZAnim->PlayZombieSequence(DeathAnim, false, DeathPlayRate);
+			}
 		}
 		CurrentLoopAnim = nullptr;
 
@@ -868,10 +909,26 @@ void AZombieEnemy::EnterCrawlState()
 		DefaultMeshRelativeZ = GetMesh()->GetRelativeLocation().Z;
 	}
 
-	// Lower collision capsule so the player must aim down at the crawling zombie
+	// Lower collision capsule so the player must aim down at the crawling zombie, and snap to floor with zero pop
 	if (UCapsuleComponent* Cap = GetCapsuleComponent())
 	{
 		Cap->SetCapsuleSize(34.0f, 36.0f, true);
+		if (UWorld* World = GetWorld())
+		{
+			FHitResult GroundHit;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(ZombieCrawlGroundSnap), false);
+			Params.AddIgnoredActor(this);
+			const FVector Loc = GetActorLocation();
+			if (World->LineTraceSingleByChannel(GroundHit, Loc + FVector(0.0f, 0.0f, 60.0f), Loc - FVector(0.0f, 0.0f, 400.0f), ECC_WorldStatic, Params))
+			{
+				SetActorLocation(FVector(Loc.X, Loc.Y, GroundHit.ImpactPoint.Z + 36.0f));
+				DefaultMeshRelativeZ = -36.0f;
+				if (GetMesh())
+				{
+					GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, DefaultMeshRelativeZ));
+				}
+			}
+		}
 	}
 
 	// Slow down to a relentless ground crawl (fast zombies keep a faster frantic crawl matched to WalkAnim reference speed!)

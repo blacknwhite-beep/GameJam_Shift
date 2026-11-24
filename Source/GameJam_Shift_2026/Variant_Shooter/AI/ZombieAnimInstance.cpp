@@ -111,7 +111,7 @@ bool FZombieAnimInstanceProxy::Evaluate(FPoseContext& Output)
 	ActiveSequence->GetAnimationPose(PoseData, FAnimExtractContext(static_cast<double>(SequenceTime), false));
 
 	// 2. Apply pre-finalization local-bone-space look-at arch across Spine1, Spine2, Neck, and Head!
-	if (!bEnableHeadLook)
+	if (!bEnableHeadLook && !bIsCrawling && FMath::Abs(SmoothedPitchUpDeg) < 0.25f && FMath::Abs(SmoothedYawDeg) < 0.25f)
 	{
 		return true;
 	}
@@ -140,13 +140,28 @@ bool FZombieAnimInstanceProxy::Evaluate(FPoseContext& Output)
 	// While crawling belly-down (mesh tilted forward 64 deg + walk animation 30 deg hunch = 94 deg face-down),
 	// we arch the upper spine, neck, and head UP by 94 + DesiredPitchDeg (100..135 deg total upward crane)
 	// so the zombie's chest, neck, and face lift right off the dirt and stare straight at the player!
-	const float TargetTotalPitchUpDeg = bIsCrawling
-		? FMath::Clamp(94.0f + DesiredPitchDeg, 96.0f, 136.0f)
-		: FMath::Clamp(18.0f + DesiredPitchDeg, -25.0f, 65.0f);
-	const float TargetTotalYawDeg = FMath::Clamp(DesiredYawDeg, -65.0f, 65.0f);
+	// When bEnableHeadLook turns false on death:
+	//   - Crawling zombies smoothly slump their raised head/chest down onto the dirt (+16 deg neutral rest so face lies flush with belly)
+	//   - Standing zombies smoothly relax look-at back to 0 deg so DeathAnim plays cleanly
+	float TargetTotalPitchUpDeg = 0.0f;
+	float TargetTotalYawDeg = 0.0f;
+	float InterpSpeed = 10.0f;
+	if (bEnableHeadLook)
+	{
+		TargetTotalPitchUpDeg = bIsCrawling
+			? FMath::Clamp(94.0f + DesiredPitchDeg, 96.0f, 136.0f)
+			: FMath::Clamp(18.0f + DesiredPitchDeg, -25.0f, 65.0f);
+		TargetTotalYawDeg = FMath::Clamp(DesiredYawDeg, -65.0f, 65.0f);
+	}
+	else
+	{
+		TargetTotalPitchUpDeg = bIsCrawling ? 16.0f : 0.0f;
+		TargetTotalYawDeg = 0.0f;
+		InterpSpeed = 7.5f;
+	}
 
-	SmoothedPitchUpDeg = FMath::FInterpTo(SmoothedPitchUpDeg, TargetTotalPitchUpDeg, 0.016f, 10.0f);
-	SmoothedYawDeg     = FMath::FInterpTo(SmoothedYawDeg, TargetTotalYawDeg, 0.016f, 10.0f);
+	SmoothedPitchUpDeg = FMath::FInterpTo(SmoothedPitchUpDeg, TargetTotalPitchUpDeg, 0.016f, InterpSpeed);
+	SmoothedYawDeg     = FMath::FInterpTo(SmoothedYawDeg, TargetTotalYawDeg, 0.016f, InterpSpeed);
 
 	// On SK_Zombie (confirmed in Skeleton Editor):
 	//   Local +X (Red arrow)   = Left ear/shoulder (horizontal pitch hinge: +angle lifts face & spine UP off the floor!)
