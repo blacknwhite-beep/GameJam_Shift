@@ -9,6 +9,7 @@
 #include "EngineUtils.h"
 #include "Animation/AnimSequence.h"
 #include "Camera/CameraComponent.h"
+#include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -604,6 +605,15 @@ void AZombieEnemy::Die()
 		{
 			Cap->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		}
+		TArray<UBoxComponent*> HitBoxes;
+		GetComponents<UBoxComponent>(HitBoxes);
+		for (UBoxComponent* Box : HitBoxes)
+		{
+			if (Box)
+			{
+				Box->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			}
+		}
 		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 		{
 			MoveComp->StopMovementImmediately();
@@ -928,6 +938,25 @@ void AZombieEnemy::EnterCrawlState()
 					GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, DefaultMeshRelativeZ));
 				}
 			}
+		}
+
+		// Attach a horizontal crawling-body hitbox covering the tilted mesh from legs (-66) through chest (+45) to raised head (+78, Z up to +68)
+		// so shooting anywhere on the crawling zombie's head, torso, or legs registers cleanly instead of passing above/in front of the tiny capsule!
+		UBoxComponent* CrawlHitbox = NewObject<UBoxComponent>(this, TEXT("CrawlHitbox"));
+		if (CrawlHitbox)
+		{
+			CrawlHitbox->SetBoxExtent(FVector(72.0f, 38.0f, 48.0f));
+			CrawlHitbox->SetRelativeLocation(FVector(6.0f, 0.0f, 20.0f));
+			CrawlHitbox->SetCollisionObjectType(ECC_Pawn);
+			CrawlHitbox->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			CrawlHitbox->SetCollisionResponseToAllChannels(ECR_Block);
+			CrawlHitbox->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Ignore);
+			CrawlHitbox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+			CrawlHitbox->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+			CrawlHitbox->SetCanEverAffectNavigation(false);
+			CrawlHitbox->CanCharacterStepUpOn = ECanBeCharacterBase::ECB_No;
+			CrawlHitbox->SetupAttachment(Cap);
+			CrawlHitbox->RegisterComponent();
 		}
 	}
 
