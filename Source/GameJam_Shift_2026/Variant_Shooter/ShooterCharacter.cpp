@@ -9,6 +9,9 @@
 #include "FarmingComponent.h"
 #include "Farming/BarnShopActor.h"
 #include "Farming/FarmBedActor.h"
+#include "Farming/FarmPlotBase.h"
+#include "Components/StaticMeshComponent.h"
+#include "UObject/StrongObjectPtr.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "InterWorldBridge.h"
@@ -66,6 +69,91 @@ namespace
 		if (UAnimInstance* AnimInstance = MeshComponent->GetAnimInstance())
 		{
 			AnimInstance->Montage_Play(Montage);
+		}
+	}
+
+	struct FFarmerActionAnimState
+	{
+		TStrongObjectPtr<UAnimSequence> PlantAnim;
+
+		FVector StandingCamActorLocalOffset = FVector(0.0f, 0.0f, 64.0f);
+		FVector StandingHeadActorLocalPos = FVector(0.0f, 0.0f, 68.0f);
+		FQuat HeadBoneToEyeLocalQuat = FQuat::Identity;
+		bool bCalibrated = false;
+
+		bool bIsPlanting = false;
+		bool bDrivingFPCamera = false;
+		bool bSeedRevealed = true;
+		float TotalOneShotDuration = 0.0f;
+
+		FVector PlantStartActorLoc = FVector::ZeroVector;
+		FVector PlantTargetActorLoc = FVector::ZeroVector;
+		float PlantStartYaw = 0.0f;
+		float PlantTargetYaw = 0.0f;
+		FVector PlantTargetSoilWorld = FVector::ZeroVector;
+
+		FVector SmoothedAnimCamLoc = FVector::ZeroVector;
+		FQuat SmoothedAnimCamQuat = FQuat::Identity;
+		bool bHasSmoothedCam = false;
+
+		TWeakObjectPtr<AFarmPlotBase> PendingPlantPlot;
+		bool bWasSproutVisible = false;
+		bool bWasCropFallbackVisible = false;
+	};
+
+	TMap<TWeakObjectPtr<const AShooterCharacter>, FFarmerActionAnimState> GFarmerActionStates;
+
+	FFarmerActionAnimState& GetFarmerActionState(const AShooterCharacter* Character)
+	{
+		return GFarmerActionStates.FindOrAdd(Character);
+	}
+
+	void RevealPendingPlantSprout(FFarmerActionAnimState& State)
+	{
+		if (!State.bSeedRevealed)
+		{
+			State.bSeedRevealed = true;
+			if (AFarmPlotBase* Plot = State.PendingPlantPlot.Get())
+			{
+				if (Plot->GetCurrentStage() != ECropStage::Empty)
+				{
+					if (State.bWasSproutVisible && Plot->Mesh_Sprout)
+					{
+						Plot->Mesh_Sprout->SetVisibility(true);
+					}
+					if (State.bWasCropFallbackVisible && Plot->CropMesh)
+					{
+						Plot->CropMesh->SetVisibility(true);
+					}
+				}
+			}
+		}
+		State.PendingPlantPlot.Reset();
+	}
+
+	void RestoreFarmerActionCamera(AShooterCharacter* Character, FFarmerActionAnimState& State, const FVector& DefaultRelLoc, const FRotator& DefaultRelRot, bool bSavedPawnRot, bool bThirdPerson, bool bSleeping)
+	{
+		RevealPendingPlantSprout(State);
+		State.bIsPlanting = false;
+		State.bHasSmoothedCam = false;
+
+		if (!State.bDrivingFPCamera)
+		{
+			return;
+		}
+		State.bDrivingFPCamera = false;
+
+		if (!Character || bThirdPerson || bSleeping)
+		{
+			return;
+		}
+
+		if (UCameraComponent* Camera = Character->GetFirstPersonCameraComponent())
+		{
+			Camera->SetUsingAbsoluteLocation(false);
+			Camera->SetUsingAbsoluteRotation(false);
+			Camera->SetRelativeLocationAndRotation(DefaultRelLoc, DefaultRelRot);
+			Camera->bUsePawnControlRotation = bSavedPawnRot;
 		}
 	}
 }
@@ -261,6 +349,12 @@ void AShooterCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
 	// clear the respawn timer
 	GetWorld()->GetTimerManager().ClearTimer(RespawnTimer);
 
+	if (FFarmerActionAnimState* State = GFarmerActionStates.Find(this))
+	{
+		RevealPendingPlantSprout(*State);
+		GFarmerActionStates.Remove(this);
+	}
+
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -385,8 +479,8 @@ float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dam
 
 void AShooterCharacter::DoAim(float Yaw, float Pitch)
 {
-	// the view stays locked while lying in bed
-	if (bIsSleepingInBed)
+	// the view stays locked while lying in bed or kneeling in the full planting animation
+	if (bIsSleepingInBed || GetFarmerActionState(this).bIsPlanting)
 	{
 		return;
 	}
@@ -408,8 +502,8 @@ void AShooterCharacter::DoAim(float Yaw, float Pitch)
 
 void AShooterCharacter::DoMove(float Right, float Forward)
 {
-	// no walking while lying in bed
-	if (bIsSleepingInBed)
+	// no walking while lying in bed or kneeling to plant a crop
+	if (bIsSleepingInBed || GetFarmerActionState(this).bIsPlanting)
 	{
 		return;
 	}
@@ -423,8 +517,8 @@ void AShooterCharacter::DoMove(float Right, float Forward)
 
 void AShooterCharacter::DoJumpStart()
 {
-	// no jumping while lying in bed
-	if (bIsSleepingInBed)
+	// no jumping while lying in bed or kneeling to plant a crop
+	if (bIsSleepingInBed || GetFarmerActionState(this).bIsPlanting)
 	{
 		return;
 	}
@@ -488,19 +582,102 @@ void AShooterCharacter::DoStartFiring()
 
 		if (FarmingComponent)
 		{
+			FFarmerActionAnimState& ActionState = GetFarmerActionState(this);
+			if (ActionState.bIsPlanting)
+			{
+				return;
+			}
+
+			AFarmPlotBase* TargetPlot = FarmingComponent->GetTargetedPlot();
+			const EFarmTool Tool = FarmingComponent->ActiveTool;
+			const bool bWillPlant = (Tool == EFarmTool::None)
+				&& TargetPlot
+				&& TargetPlot->CanPlant()
+				&& !FarmingComponent->SelectedSeedID.IsNone()
+				&& FarmingComponent->GetSeedCount(FarmingComponent->SelectedSeedID) > 0;
+			const bool bWillHarvest = (Tool == EFarmTool::Harvester || Tool == EFarmTool::None)
+				&& TargetPlot
+				&& TargetPlot->CanHarvest();
+
+			FarmingComponent->UseActiveTool();
+
 			if (bUsingFarmerMesh)
 			{
-				const EFarmTool Tool = FarmingComponent->ActiveTool;
-				if (Tool == EFarmTool::Harvester && FarmerAnim_GrabLow)
+				if (bWillPlant && TargetPlot && TargetPlot->GetCurrentStage() == ECropStage::Planted && ActionState.PlantAnim.IsValid())
 				{
-					PlayFarmerOneShotAnim(FarmerAnim_GrabLow, 1.35f);
+					if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+					{
+						MoveComp->StopMovementImmediately();
+					}
+
+					const FVector ActorLoc = GetActorLocation();
+					const FVector PlotLoc = TargetPlot->GetActorLocation();
+					FVector ToPlot2D(PlotLoc.X - ActorLoc.X, PlotLoc.Y - ActorLoc.Y, 0.0f);
+					if (ToPlot2D.SizeSquared2D() < 1.0f)
+					{
+						ToPlot2D = GetActorForwardVector();
+						ToPlot2D.Z = 0.0f;
+					}
+					const FVector ToPlotDir = ToPlot2D.GetSafeNormal();
+
+					// Position Farmer 48 cm in front of the plot center so both retargeted hands (+45..+52 cm forward) cup the soil dead-center!
+					FVector DesiredKneelLoc = FVector(PlotLoc.X, PlotLoc.Y, ActorLoc.Z) - ToPlotDir * 48.0f;
+					const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 96.0f;
+					FHitResult FloorHit;
+					FCollisionQueryParams FloorParams(SCENE_QUERY_STAT(PlantKneelFloorTrace), false);
+					FloorParams.AddIgnoredActor(this);
+					FloorParams.AddIgnoredActor(TargetPlot);
+					if (GetWorld()->LineTraceSingleByChannel(
+						FloorHit,
+						DesiredKneelLoc + FVector(0.0f, 0.0f, 80.0f),
+						DesiredKneelLoc - FVector(0.0f, 0.0f, 240.0f),
+						ECC_WorldStatic,
+						FloorParams))
+					{
+						DesiredKneelLoc.Z = FloorHit.ImpactPoint.Z + HalfHeight;
+					}
+
+					ActionState.bIsPlanting = true;
+					ActionState.bHasSmoothedCam = false;
+					ActionState.PlantStartActorLoc = ActorLoc;
+					ActionState.PlantTargetActorLoc = DesiredKneelLoc;
+					ActionState.PlantStartYaw = GetActorRotation().Yaw;
+					ActionState.PlantTargetYaw = ToPlotDir.Rotation().Yaw;
+					ActionState.PlantTargetSoilWorld = PlotLoc + FVector(0.0f, 0.0f, 10.0f);
+
+					// Hold the seedling mesh hidden while digging the hole, then pop it visible right between both hands at 46% progress!
+					ActionState.PendingPlantPlot = TargetPlot;
+					ActionState.bWasSproutVisible = TargetPlot->Mesh_Sprout && TargetPlot->Mesh_Sprout->IsVisible();
+					ActionState.bWasCropFallbackVisible = TargetPlot->CropMesh && TargetPlot->CropMesh->IsVisible();
+					if (ActionState.bWasSproutVisible || ActionState.bWasCropFallbackVisible)
+					{
+						ActionState.bSeedRevealed = false;
+						if (TargetPlot->Mesh_Sprout) { TargetPlot->Mesh_Sprout->SetVisibility(false); }
+						if (TargetPlot->CropMesh)    { TargetPlot->CropMesh->SetVisibility(false); }
+					}
+					else
+					{
+						ActionState.bSeedRevealed = true;
+					}
+
+					PlayFarmerOneShotAnim(ActionState.PlantAnim.Get(), 1.65f);
+					ActionState.TotalOneShotDuration = FarmerOneShotRemaining;
 				}
-				else if (FarmerAnim_WorkHoe)
+				else if (bWillHarvest && FarmerAnim_GrabLow)
 				{
+					ActionState.bIsPlanting = false;
+					ActionState.bHasSmoothedCam = false;
+					PlayFarmerOneShotAnim(FarmerAnim_GrabLow, 1.35f);
+					ActionState.TotalOneShotDuration = FarmerOneShotRemaining;
+				}
+				else if ((Tool == EFarmTool::Hoe || Tool == EFarmTool::WateringCan) && FarmerAnim_WorkHoe)
+				{
+					ActionState.bIsPlanting = false;
+					ActionState.bHasSmoothedCam = false;
 					PlayFarmerOneShotAnim(FarmerAnim_WorkHoe, 1.35f);
+					ActionState.TotalOneShotDuration = FarmerOneShotRemaining;
 				}
 			}
-			FarmingComponent->UseActiveTool();
 		}
 		return;
 	}
@@ -864,10 +1041,19 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 {
 	CurrentDimension = NewDimension;
 
-	// Waking from bed on shift restores the camera roll and movement immediately
+	// Waking from bed or cancelling active planting camera on shift restores camera and movement immediately
 	if (bIsSleepingInBed)
 	{
 		ExitBedSleep(false);
+	}
+	{
+		FFarmerActionAnimState& ActionState = GetFarmerActionState(this);
+		if (ActionState.bIsPlanting || ActionState.bDrivingFPCamera)
+		{
+			FarmerOneShotRemaining = 0.0f;
+			CurrentFarmerAnim = nullptr;
+			RestoreFarmerActionCamera(this, ActionState, DefaultCameraRelLocation, DefaultCameraRelRotation, bSavedUsePawnControlRotation, bIsThirdPersonView, bIsSleepingInBed);
+		}
 	}
 
 	APlayerController* PC = Cast<APlayerController>(GetController());
@@ -1770,6 +1956,8 @@ void AShooterCharacter::InitializeFarmerCharacterMesh()
 	BodyMesh->SetOwnerNoSee(false);
 	BodyMesh->SetCastShadow(true);
 	BodyMesh->bCastHiddenShadow = true;
+	BodyMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	BodyMesh->bEnableUpdateRateOptimizations = false;
 	BodyMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 
 	// Hide the old gray Unreal Mannequin FP arms permanently (weapons now render with Cubic Farmer hands on the camera)
@@ -1779,10 +1967,7 @@ void AShooterCharacter::InitializeFarmerCharacterMesh()
 		GetFirstPersonMesh()->SetAnimInstanceClass(nullptr);
 	}
 
-	// Hide only the head bone in First-Person so the player sees their Farmer body/legs/overalls & shadow without head clipping
-	BodyMesh->HideBoneByName(FName("head"), PBO_None);
-
-	// Load the Farmer animation sequences from the pack
+	// Load the Farmer animation sequences from the pack + retargeted Mixamo "Plant A Plant" sequence
 	const TCHAR* AnimBase = TEXT("/Game/3D_LOW_POLY_FarmerPack/Animations/Farmer/");
 	FarmerAnim_Idle       = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_idle_basic.anim_Farmer_idle_basic"), AnimBase));
 	FarmerAnim_IdleCombat = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_idle_combat.anim_Farmer_idle_combat"), AnimBase));
@@ -1793,11 +1978,35 @@ void AShooterCharacter::InitializeFarmerCharacterMesh()
 	FarmerAnim_HitReact   = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_hit_reaction.anim_Farmer_hit_reaction"), AnimBase));
 	FarmerAnim_Death      = LoadObject<UAnimSequence>(nullptr, *FString::Printf(TEXT("%sanim_Farmer_death.anim_Farmer_death"), AnimBase));
 
+	FFarmerActionAnimState& ActionState = GetFarmerActionState(this);
+	if (UAnimSequence* LoadedPlantAnim = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Dev_Blueprint/Characters/Farmer/Animations/Anim_Farmer_Plant.Anim_Farmer_Plant")))
+	{
+		ActionState.PlantAnim = TStrongObjectPtr<UAnimSequence>(LoadedPlantAnim);
+	}
+
 	if (FarmerAnim_Idle)
 	{
 		BodyMesh->PlayAnimation(FarmerAnim_Idle, true);
 		CurrentFarmerAnim = FarmerAnim_Idle;
+		BodyMesh->TickPose(0.0f, false);
+		BodyMesh->RefreshBoneTransforms();
 	}
+
+	// Calibrate exact standing head-bone-to-camera mapping BEFORE hiding head bone so First-Person camera matches animations 1:1
+	if (UCameraComponent* Camera = GetFirstPersonCameraComponent())
+	{
+		ActionState.StandingCamActorLocalOffset = GetActorTransform().InverseTransformPosition(Camera->GetComponentLocation());
+	}
+	if (BodyMesh->GetBoneIndex(FName("head")) != INDEX_NONE)
+	{
+		ActionState.StandingHeadActorLocalPos = GetActorTransform().InverseTransformPosition(BodyMesh->GetBoneLocation(FName("head")));
+		const FQuat IdleHeadWorldQuat = BodyMesh->GetBoneQuaternion(FName("head"), EBoneSpaces::WorldSpace);
+		ActionState.HeadBoneToEyeLocalQuat = IdleHeadWorldQuat.Inverse() * GetActorQuat();
+		ActionState.bCalibrated = true;
+	}
+
+	// Hide only the head bone in First-Person so the player sees their Farmer arms/hands/overalls & shadow without head clipping
+	BodyMesh->HideBoneByName(FName("head"), PBO_None);
 
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("ShooterCharacter: Equipped Animated Cubic Farmer (SKM_Farmer_male) as main character."));
 }
@@ -1818,6 +2027,9 @@ void AShooterCharacter::PlayFarmerOneShotAnim(UAnimSequence* Anim, float PlayRat
 
 void AShooterCharacter::UpdateFarmerAnimation(float DeltaTime)
 {
+	USkeletalMeshComponent* BodyMesh = GetMesh();
+	FFarmerActionAnimState& ActionState = GetFarmerActionState(this);
+
 	// Update Third-Person shoulder camera if active (never interfere with bed sleep)
 	if (bIsThirdPersonView && !bIsSleepingInBed)
 	{
@@ -1826,8 +2038,14 @@ void AShooterCharacter::UpdateFarmerAnimation(float DeltaTime)
 			if (APlayerController* PC = Cast<APlayerController>(GetController()))
 			{
 				const FRotator ViewRot = PC->GetControlRotation();
-				const FVector Pivot = GetActorLocation() + FVector(0.0f, 0.0f, 68.0f);
-				const FVector DesiredPos = Pivot - ViewRot.Vector() * 260.0f + FRotationMatrix(ViewRot).GetUnitAxis(EAxis::Y) * 28.0f;
+				FVector Pivot = GetActorLocation() + FVector(0.0f, 0.0f, 68.0f);
+				// Lower Third-Person camera pivot naturally while kneeling to plant
+				if (ActionState.bIsPlanting && BodyMesh && BodyMesh->GetBoneIndex(FName("pelvis")) != INDEX_NONE)
+				{
+					const float PelvisWorldZ = BodyMesh->GetBoneLocation(FName("pelvis")).Z;
+					Pivot.Z = FMath::Min(Pivot.Z, PelvisWorldZ + 38.0f);
+				}
+				const FVector DesiredPos = Pivot - ViewRot.Vector() * 245.0f + FRotationMatrix(ViewRot).GetUnitAxis(EAxis::Y) * 28.0f;
 
 				FVector FinalPos = DesiredPos;
 				FHitResult CamHit;
@@ -1845,20 +2063,135 @@ void AShooterCharacter::UpdateFarmerAnimation(float DeltaTime)
 		}
 	}
 
-	USkeletalMeshComponent* BodyMesh = GetMesh();
 	if (!bUsingFarmerMesh || !BodyMesh || IsDead())
 	{
+		if (ActionState.bIsPlanting || ActionState.bDrivingFPCamera)
+		{
+			RestoreFarmerActionCamera(this, ActionState, DefaultCameraRelLocation, DefaultCameraRelRotation, bSavedUsePawnControlRotation, bIsThirdPersonView, bIsSleepingInBed);
+		}
 		return;
 	}
 
 	if (FarmerOneShotRemaining > 0.0f)
 	{
 		FarmerOneShotRemaining -= DeltaTime;
+		const float TotalDur = FMath::Max(0.25f, ActionState.TotalOneShotDuration);
+		const float Elapsed = FMath::Clamp(TotalDur - FarmerOneShotRemaining, 0.0f, TotalDur);
+		const float Progress = FMath::Clamp(Elapsed / TotalDur, 0.0f, 1.0f);
+
+		// 1. During "Plant A Plant", smoothly position/orient the Farmer at the plot edge and pop the seedling right between both hands!
+		if (ActionState.bIsPlanting)
+		{
+			const float StepAlpha = FMath::SmoothStep(0.0f, 0.30f, Elapsed);
+			const FVector NewActorLoc = FMath::Lerp(ActionState.PlantStartActorLoc, ActionState.PlantTargetActorLoc, StepAlpha);
+			const float NewYaw = FMath::FixedTurn(ActionState.PlantStartYaw, ActionState.PlantTargetYaw, FMath::Abs(FMath::FindDeltaAngleDegrees(ActionState.PlantStartYaw, ActionState.PlantTargetYaw)) * StepAlpha);
+			SetActorLocationAndRotation(NewActorLoc, FRotator(0.0f, NewYaw, 0.0f), false, nullptr, ETeleportType::None);
+
+			if (!ActionState.bSeedRevealed && Progress >= 0.45f)
+			{
+				RevealPendingPlantSprout(ActionState);
+			}
+		}
+
+		// 2. Drive the First-Person Camera smoothly from the Farmer's animated head & hands while farming animations play!
+		if (!bIsThirdPersonView && !bIsSleepingInBed && CurrentDimension == EGameDimension::Farming && ActionState.bCalibrated)
+		{
+			UCameraComponent* Camera = GetFirstPersonCameraComponent();
+			APlayerController* PC = Cast<APlayerController>(GetController());
+			if (Camera && PC && BodyMesh->GetBoneIndex(FName("head")) != INDEX_NONE)
+			{
+				const FVector BaseEyeWorldLoc = GetActorTransform().TransformPosition(ActionState.StandingCamActorLocalOffset);
+				FRotator BaseEyeWorldRot = PC->GetControlRotation();
+
+				FVector TargetAnimCamLoc = BaseEyeWorldLoc;
+				FQuat TargetAnimCamQuat = BaseEyeWorldRot.Quaternion();
+				float BlendAlpha = 0.0f;
+
+				if (ActionState.bIsPlanting)
+				{
+					// Smoothly face control rotation toward the planted crop so exit view looks right at the newly planted sprout
+					BaseEyeWorldRot = FRotator(-18.0f, ActionState.PlantTargetYaw, 0.0f);
+					PC->SetControlRotation(BaseEyeWorldRot);
+
+					const float InAlpha = FMath::SmoothStep(0.0f, 0.32f, Elapsed);
+					const float OutAlpha = FMath::SmoothStep(0.0f, 0.38f, FMath::Max(0.0f, FarmerOneShotRemaining));
+					BlendAlpha = FMath::Min(InAlpha, OutAlpha);
+
+					const FVector HeadWorld   = BodyMesh->GetBoneLocation(FName("head"));
+					const FVector PelvisWorld = BodyMesh->GetBoneLocation(FName("pelvis"));
+					const FVector HandLWorld  = BodyMesh->GetBoneLocation(FName("hand_l"));
+					const FVector HandRWorld  = BodyMesh->GetBoneLocation(FName("hand_r"));
+					const FVector HandsMid    = 0.5f * (HandLWorld + HandRWorld);
+					const FVector ActorFwd    = GetActorForwardVector();
+
+					// Verified eye vantage point: follows kneeling head sway/drop 1:1 while staying 34+ cm above spine_03 (zero chest clipping)
+					// and keeping both Farmer arms & hands 15..37 cm in front of the camera throughout digging, placing, and patting!
+					TargetAnimCamLoc = FMath::Lerp(PelvisWorld + FVector(0.0f, 0.0f, 45.0f), HeadWorld, 0.65f)
+						- ActorFwd * 14.0f
+						+ FVector(0.0f, 0.0f, 18.0f);
+
+					const FQuat HeadEyeQuat = BodyMesh->GetBoneQuaternion(FName("head"), EBoneSpaces::WorldSpace) * ActionState.HeadBoneToEyeLocalQuat;
+					FRotator HeadEyeRot = HeadEyeQuat.Rotator();
+					HeadEyeRot.Roll *= 0.22f;
+
+					const FVector FocusPoint = FMath::Lerp(HandsMid, ActionState.PlantTargetSoilWorld, 0.40f);
+					const FRotator WorkspaceLookRot = (FocusPoint - TargetAnimCamLoc).GetSafeNormal().Rotation();
+					TargetAnimCamQuat = FQuat::Slerp(HeadEyeRot.Quaternion(), WorkspaceLookRot.Quaternion(), 0.55f).GetNormalized();
+				}
+				else
+				{
+					// Hoe / Watering Can / Harvester: subtle natural head-motion follow-through matched to the arm swing / grab
+					const float InAlpha = FMath::SmoothStep(0.0f, 0.14f, Elapsed);
+					const float OutAlpha = FMath::SmoothStep(0.0f, 0.20f, FMath::Max(0.0f, FarmerOneShotRemaining));
+					BlendAlpha = FMath::Min(InAlpha, OutAlpha);
+
+					const FVector HeadActorLocal = GetActorTransform().InverseTransformPosition(BodyMesh->GetBoneLocation(FName("head")));
+					const FVector HeadLocalDelta = HeadActorLocal - ActionState.StandingHeadActorLocalPos;
+					TargetAnimCamLoc = BaseEyeWorldLoc + GetActorQuat().RotateVector(HeadLocalDelta * 0.65f);
+
+					const FQuat HeadEyeQuat = BodyMesh->GetBoneQuaternion(FName("head"), EBoneSpaces::WorldSpace) * ActionState.HeadBoneToEyeLocalQuat;
+					const FRotator HeadLocalRotDelta = (GetActorQuat().Inverse() * HeadEyeQuat).Rotator();
+					FRotator FollowRot = BaseEyeWorldRot;
+					FollowRot.Pitch = FMath::Clamp(BaseEyeWorldRot.Pitch + HeadLocalRotDelta.Pitch * 0.45f, -85.0f, 85.0f);
+					FollowRot.Yaw   = BaseEyeWorldRot.Yaw + HeadLocalRotDelta.Yaw * 0.35f;
+					FollowRot.Roll  = HeadLocalRotDelta.Roll * 0.20f;
+					TargetAnimCamQuat = FollowRot.Quaternion();
+				}
+
+				if (!ActionState.bHasSmoothedCam)
+				{
+					ActionState.SmoothedAnimCamLoc = TargetAnimCamLoc;
+					ActionState.SmoothedAnimCamQuat = TargetAnimCamQuat;
+					ActionState.bHasSmoothedCam = true;
+				}
+				else
+				{
+					ActionState.SmoothedAnimCamLoc = FMath::VInterpTo(ActionState.SmoothedAnimCamLoc, TargetAnimCamLoc, DeltaTime, 14.0f);
+					ActionState.SmoothedAnimCamQuat = FMath::QInterpTo(ActionState.SmoothedAnimCamQuat, TargetAnimCamQuat, DeltaTime, 14.0f);
+				}
+
+				const FVector FinalCamLoc = FMath::Lerp(BaseEyeWorldLoc, ActionState.SmoothedAnimCamLoc, BlendAlpha);
+				const FQuat FinalCamQuat = FQuat::Slerp(BaseEyeWorldRot.Quaternion(), ActionState.SmoothedAnimCamQuat, BlendAlpha).GetNormalized();
+
+				ActionState.bDrivingFPCamera = true;
+				Camera->bUsePawnControlRotation = false;
+				Camera->SetUsingAbsoluteLocation(true);
+				Camera->SetUsingAbsoluteRotation(true);
+				Camera->SetWorldLocationAndRotation(FinalCamLoc, FinalCamQuat.Rotator());
+			}
+		}
+
 		if (FarmerOneShotRemaining > 0.0f)
 		{
 			return;
 		}
+
 		CurrentFarmerAnim = nullptr;
+		RestoreFarmerActionCamera(this, ActionState, DefaultCameraRelLocation, DefaultCameraRelRotation, bSavedUsePawnControlRotation, bIsThirdPersonView, bIsSleepingInBed);
+	}
+	else if (ActionState.bIsPlanting || ActionState.bDrivingFPCamera)
+	{
+		RestoreFarmerActionCamera(this, ActionState, DefaultCameraRelLocation, DefaultCameraRelRotation, bSavedUsePawnControlRotation, bIsThirdPersonView, bIsSleepingInBed);
 	}
 
 	const float GroundSpeed = GetVelocity().Size2D();
