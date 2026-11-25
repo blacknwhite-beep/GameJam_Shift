@@ -77,6 +77,10 @@ namespace
 	struct FFarmerActionAnimState
 	{
 		TStrongObjectPtr<UAnimSequence> PlantAnim;
+		TStrongObjectPtr<UAnimSequence> HarvestAnim;   // Mixamo "Pick Fruit" retarget for harvesting mature crops
+		TStrongObjectPtr<UAnimSequence> WateringAnim;  // Mixamo "Watering" retarget for tending crops
+		bool bIsHarvestAction = false;
+		bool bIsWateringAction = false;
 
 		FVector StandingCamActorLocalOffset = FVector(0.0f, 0.0f, 64.0f);
 		FVector StandingHeadActorLocalPos = FVector(0.0f, 0.0f, 68.0f);
@@ -99,6 +103,7 @@ namespace
 		bool bHasSmoothedCam = false;
 
 		TWeakObjectPtr<AFarmPlotBase> PendingPlantPlot;
+		TWeakObjectPtr<USceneComponent> PendingMatureMesh;   // harvest: mature crop hidden when the hand reaches it
 		bool bWasSproutVisible = false;
 		bool bWasCropFallbackVisible = false;
 
@@ -250,7 +255,16 @@ namespace
 
 	void RevealPendingPlantSprout(FFarmerActionAnimState& State)
 	{
-		if (!State.bSeedRevealed)
+		if (State.bIsHarvestAction)
+		{
+			// Harvest: hide the mature crop when the Farmer's hand reaches it (grab moment).
+			if (USceneComponent* Mature = State.PendingMatureMesh.Get())
+			{
+				Mature->SetVisibility(false);
+			}
+			State.PendingMatureMesh.Reset();
+		}
+		else if (!State.bSeedRevealed)
 		{
 			State.bSeedRevealed = true;
 			if (AFarmPlotBase* Plot = State.PendingPlantPlot.Get())
@@ -275,6 +289,8 @@ namespace
 	{
 		RevealPendingPlantSprout(State);
 		State.bIsPlanting = false;
+		State.bIsHarvestAction = false;
+		State.bIsWateringAction = false;
 		State.bHasSmoothedCam = false;
 
 		if (!State.bDrivingFPCamera)
@@ -308,6 +324,22 @@ AShooterCharacter::AShooterCharacter()
 
 	// create the Farming component
 	FarmingComponent = CreateDefaultSubobject<UFarmingComponent>(TEXT("FarmingComponent"));
+
+	// Watering-can prop: created hidden, attached/repositioned per view & tool by UpdateWateringCanVisibility().
+	WateringCanMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WateringCanMesh"));
+	WateringCanMesh->SetupAttachment(RootComponent);
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CanMeshFinder(
+		TEXT("/Game/Dev_Blueprint/Models/watering_can/StaticMeshes/SM_WateringCan.SM_WateringCan"));
+	if (CanMeshFinder.Succeeded())
+	{
+		WateringCanMesh->SetStaticMesh(CanMeshFinder.Object);
+	}
+	WateringCanMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WateringCanMesh->SetCastShadow(false);
+	WateringCanMesh->bCastHiddenShadow = false;
+	WateringCanMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::None);
+	WateringCanMesh->SetVisibility(false, false);
+	WateringCanMesh->SetHiddenInGame(true, false);
 
 	// create the tactical flashlight attached to the first-person camera (off by default, Combat world only)
 	TacticalFlashlight = CreateDefaultSubobject<USpotLightComponent>(TEXT("TacticalFlashlight"));
@@ -456,6 +488,12 @@ void AShooterCharacter::Tick(float DeltaTime)
 
 	// Update Animated Cubic Farmer locomotion & camera
 	UpdateFarmerAnimation(DeltaTime);
+
+	// DEBUG: loop the watering animation in Third-Person so the grip can be tuned live
+	UpdateWateringDebugLoop();
+
+	// Keep the Farm-only watering can attached/visible to match view, world and equipped tool
+	UpdateWateringCanVisibility();
 
 	if (ShiftGlitchRemaining > 0.0f)
 	{
@@ -738,6 +776,9 @@ void AShooterCharacter::DoStartFiring()
 			const bool bWillHarvest = (Tool == EFarmTool::Harvester || Tool == EFarmTool::None)
 				&& TargetPlot
 				&& TargetPlot->CanHarvest();
+			const bool bWillWater = (Tool == EFarmTool::WateringCan)
+				&& TargetPlot
+				&& TargetPlot->CanWater();
 
 			FarmingComponent->UseActiveTool();
 
@@ -778,6 +819,8 @@ void AShooterCharacter::DoStartFiring()
 					}
 
 					ActionState.bIsPlanting = true;
+					ActionState.bIsHarvestAction = false;
+					ActionState.bIsWateringAction = false;
 					ActionState.bHasSmoothedCam = false;
 					ActionState.PlantStartActorLoc = ActorLoc;
 					ActionState.PlantTargetActorLoc = DesiredKneelLoc;
@@ -806,16 +849,131 @@ void AShooterCharacter::DoStartFiring()
 					PlayFarmerOneShotAnim(ActionState.PlantAnim.Get(), 1.65f);
 					ActionState.TotalOneShotDuration = FarmerOneShotRemaining;
 				}
-				else if (bWillHarvest && FarmerAnim_GrabLow)
+				else if (bWillHarvest && (ActionState.HarvestAnim.IsValid() || FarmerAnim_GrabLow))
 				{
-					ActionState.bIsPlanting = false;
+					// Harvest a fully-mature crop with the Mixamo "Pick Fruit" retarget. Use the same
+					// playbook action state machine as planting (forced Third-Person, inside-fence 3/4
+					// camera, movement lock) so the Farmer is clearly visible reaching for the fruit.
+					if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+					{
+						MoveComp->StopMovementImmediately();
+					}
+
+					const FVector ActorLoc = GetActorLocation();
+					const FVector PlotLoc = TargetPlot->GetActorLocation();
+					FVector ToPlot2D(PlotLoc.X - ActorLoc.X, PlotLoc.Y - ActorLoc.Y, 0.0f);
+					if (ToPlot2D.SizeSquared2D() < 1.0f)
+					{
+						ToPlot2D = GetActorForwardVector();
+						ToPlot2D.Z = 0.0f;
+					}
+					const FVector ToPlotDir = ToPlot2D.GetSafeNormal();
+
+					// Stand at the plot edge so the retargeted hand (+45..+52 cm forward) reaches the fruit.
+					FVector DesiredReachLoc = FVector(PlotLoc.X, PlotLoc.Y, ActorLoc.Z) - ToPlotDir * 48.0f;
+					const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 96.0f;
+					FHitResult FloorHit;
+					FCollisionQueryParams FloorParams(SCENE_QUERY_STAT(HarvestReachFloorTrace), false);
+					FloorParams.AddIgnoredActor(this);
+					FloorParams.AddIgnoredActor(TargetPlot);
+					if (GetWorld()->LineTraceSingleByChannel(
+						FloorHit,
+						DesiredReachLoc + FVector(0.0f, 0.0f, 80.0f),
+						DesiredReachLoc - FVector(0.0f, 0.0f, 240.0f),
+						ECC_WorldStatic,
+						FloorParams))
+					{
+						DesiredReachLoc.Z = FloorHit.ImpactPoint.Z + HalfHeight;
+					}
+
+					// UseActiveTool() already cleared the plot and hid the crop; keep the mature plant
+					// visible during the reach, then hide it at the grab moment (Progress >= 0.45).
+					USceneComponent* MatureMesh = nullptr;
+					if (TargetPlot->Mesh_Mature && TargetPlot->Mesh_Mature->GetStaticMesh())
+					{
+						MatureMesh = TargetPlot->Mesh_Mature;
+					}
+					else if (TargetPlot->CropMesh && TargetPlot->CropMesh->GetStaticMesh())
+					{
+						MatureMesh = TargetPlot->CropMesh;
+					}
+
+					ActionState.bIsPlanting = true;      // reuse the playbook action camera/restore state machine
+					ActionState.bIsHarvestAction = true;
 					ActionState.bHasSmoothedCam = false;
-					PlayFarmerOneShotAnim(FarmerAnim_GrabLow, 1.35f);
+					ActionState.PlantStartActorLoc = ActorLoc;
+					ActionState.PlantTargetActorLoc = DesiredReachLoc;
+					ActionState.PlantStartYaw = GetActorRotation().Yaw;
+					ActionState.PlantTargetYaw = ToPlotDir.Rotation().Yaw;
+					ActionState.PlantTargetSoilWorld = PlotLoc + FVector(0.0f, 0.0f, 60.0f); // fruit height on the mature plant
+					ActionState.PendingPlantPlot = TargetPlot;
+					ActionState.PendingMatureMesh = MatureMesh;
+					ActionState.bSeedRevealed = false;   // triggers the grab hide at 45% progress
+					if (MatureMesh)
+					{
+						MatureMesh->SetVisibility(true);
+					}
+
+					BeginPlantThirdPerson(this, ActionState, bIsThirdPersonView);
+					UAnimSequence* HarvestClip = ActionState.HarvestAnim.IsValid() ? ActionState.HarvestAnim.Get() : FarmerAnim_GrabLow.Get();
+					PlayFarmerOneShotAnim(HarvestClip, 1.45f);
 					ActionState.TotalOneShotDuration = FarmerOneShotRemaining;
 				}
-				else if ((Tool == EFarmTool::Hoe || Tool == EFarmTool::WateringCan) && FarmerAnim_WorkHoe)
+				else if (bWillWater && ActionState.WateringAnim.IsValid() && TargetPlot)
+				{
+					// Watering: step to the plot edge and play the Mixamo "Watering" retarget in the
+					// playbook Third-Person action camera so the watering motion is fully visible.
+					if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+					{
+						MoveComp->StopMovementImmediately();
+					}
+
+					const FVector ActorLoc = GetActorLocation();
+					const FVector PlotLoc = TargetPlot->GetActorLocation();
+					FVector ToPlot2D(PlotLoc.X - ActorLoc.X, PlotLoc.Y - ActorLoc.Y, 0.0f);
+					if (ToPlot2D.SizeSquared2D() < 1.0f)
+					{
+						ToPlot2D = GetActorForwardVector();
+						ToPlot2D.Z = 0.0f;
+					}
+					const FVector ToPlotDir = ToPlot2D.GetSafeNormal();
+
+					FVector DesiredWaterLoc = FVector(PlotLoc.X, PlotLoc.Y, ActorLoc.Z) - ToPlotDir * 48.0f;
+					const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 96.0f;
+					FHitResult FloorHit;
+					FCollisionQueryParams FloorParams(SCENE_QUERY_STAT(WaterReachFloorTrace), false);
+					FloorParams.AddIgnoredActor(this);
+					FloorParams.AddIgnoredActor(TargetPlot);
+					if (GetWorld()->LineTraceSingleByChannel(
+						FloorHit,
+						DesiredWaterLoc + FVector(0.0f, 0.0f, 80.0f),
+						DesiredWaterLoc - FVector(0.0f, 0.0f, 240.0f),
+						ECC_WorldStatic,
+						FloorParams))
+					{
+						DesiredWaterLoc.Z = FloorHit.ImpactPoint.Z + HalfHeight;
+					}
+
+					ActionState.bIsPlanting = true;      // reuse playbook action camera/restore state machine
+					ActionState.bIsHarvestAction = false;
+					ActionState.bIsWateringAction = true;
+					ActionState.bHasSmoothedCam = false;
+					ActionState.PlantStartActorLoc = ActorLoc;
+					ActionState.PlantTargetActorLoc = DesiredWaterLoc;
+					ActionState.PlantStartYaw = GetActorRotation().Yaw;
+					ActionState.PlantTargetYaw = ToPlotDir.Rotation().Yaw;
+					ActionState.PlantTargetSoilWorld = PlotLoc + FVector(0.0f, 0.0f, 20.0f);
+					ActionState.bSeedRevealed = true;    // nothing to hide/reveal when watering
+
+					BeginPlantThirdPerson(this, ActionState, bIsThirdPersonView);
+					PlayFarmerOneShotAnim(ActionState.WateringAnim.Get(), 1.35f);
+					ActionState.TotalOneShotDuration = FarmerOneShotRemaining;
+				}
+				else if (Tool == EFarmTool::Hoe && FarmerAnim_WorkHoe)
 				{
 					ActionState.bIsPlanting = false;
+					ActionState.bIsHarvestAction = false;
+					ActionState.bIsWateringAction = false;
 					ActionState.bHasSmoothedCam = false;
 					PlayFarmerOneShotAnim(FarmerAnim_WorkHoe, 1.35f);
 					ActionState.TotalOneShotDuration = FarmerOneShotRemaining;
@@ -2148,6 +2306,14 @@ void AShooterCharacter::InitializeFarmerCharacterMesh()
 	{
 		ActionState.PlantAnim = TStrongObjectPtr<UAnimSequence>(LoadedPlantAnim);
 	}
+	if (UAnimSequence* LoadedHarvestAnim = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Dev_Blueprint/Characters/Farmer/Animations/Anim_Farmer_PickFruit.Anim_Farmer_PickFruit")))
+	{
+		ActionState.HarvestAnim = TStrongObjectPtr<UAnimSequence>(LoadedHarvestAnim);
+	}
+	if (UAnimSequence* LoadedWateringAnim = LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Dev_Blueprint/Characters/Farmer/Animations/Anim_Farmer_Watering.Anim_Farmer_Watering")))
+	{
+		ActionState.WateringAnim = TStrongObjectPtr<UAnimSequence>(LoadedWateringAnim);
+	}
 
 	if (FarmerAnim_Idle)
 	{
@@ -2494,6 +2660,109 @@ void AShooterCharacter::UpdateFarmerAnimation(float DeltaTime)
 	{
 		FAnim->SetZombiePlayRate(PlayRate);
 	}
+}
+
+void AShooterCharacter::UpdateWateringDebugLoop()
+{
+	if (!bDebugLoopWateringGrip || !bUsingFarmerMesh)
+	{
+		return;
+	}
+
+	USkeletalMeshComponent* BodyMesh = GetMesh();
+	FFarmerActionAnimState& ActionState = GetFarmerActionState(this);
+	if (!BodyMesh || !ActionState.WateringAnim.IsValid())
+	{
+		return;
+	}
+
+	// Force Third-Person so the hand and can are on screen, and equip the Watering Can tool so the can shows.
+	if (!bIsThirdPersonView)
+	{
+		bIsThirdPersonView = true;
+		ApplyFarmerViewVisibility(this, true);
+	}
+	if (FarmingComponent && FarmingComponent->GetActiveTool() != EFarmTool::WateringCan)
+	{
+		FarmingComponent->SetActiveTool(EFarmTool::WateringCan);
+	}
+
+	// Keep the one-shot state machine out of the way so the looping clip isn't replaced by locomotion.
+	ActionState.bIsPlanting = false;
+	ActionState.bIsHarvestAction = false;
+	ActionState.bIsWateringAction = true;
+	FarmerOneShotRemaining = 0.0f;
+
+	// Re-assert a looping Watering clip every frame: PlayZombieSequence only resets SequenceTime when the
+	// sequence/loop flag changes, so calling it with the same looping sequence keeps it running continuously.
+	PlayFarmerAnimSafe(BodyMesh, ActionState.WateringAnim.Get(), true, 1.0f);
+}
+
+void AShooterCharacter::UpdateWateringCanVisibility()
+{
+	if (!WateringCanMesh || !WateringCanMesh->GetStaticMesh())
+	{
+		return;
+	}
+
+	// The watering can belongs to the Farm world ONLY. Never show it in Combat/Zombie world,
+	// while sleeping, while dead, or unless the Watering Can tool is actually equipped.
+	const bool bPhysicallyInFarm = GetActorLocation().Z < -10000.0f;
+	const bool bToolIsWateringCan = FarmingComponent && (FarmingComponent->ActiveTool == EFarmTool::WateringCan);
+	const bool bShow = bUsingFarmerMesh
+		&& CurrentDimension == EGameDimension::Farming
+		&& bPhysicallyInFarm
+		&& bToolIsWateringCan
+		&& !IsDead()
+		&& !bIsSleepingInBed;
+
+	if (!bShow)
+	{
+		WateringCanMesh->SetVisibility(false, false);
+		WateringCanMesh->SetHiddenInGame(true, false);
+		return;
+	}
+
+	const FAttachmentTransformRules Rules(EAttachmentRule::SnapToTarget, false);
+	if (bIsThirdPersonView)
+	{
+		// Third-Person: hold the can in the Farmer's right hand so it follows the watering animation.
+		USkeletalMeshComponent* BodyMesh = GetMesh();
+		const bool bWantHand = BodyMesh && BodyMesh->DoesSocketExist(FName("hand_r"));
+		if (!bWateringCanOnHand || WateringCanMesh->GetAttachParent() != BodyMesh)
+		{
+			WateringCanMesh->AttachToComponent(
+				bWantHand ? static_cast<USceneComponent*>(BodyMesh) : static_cast<USceneComponent*>(RootComponent),
+				Rules,
+				bWantHand ? FName("hand_r") : NAME_None);
+			bWateringCanOnHand = bWantHand;
+		}
+		WateringCanMesh->SetRelativeLocation(WateringCanTPOffset);
+		WateringCanMesh->SetRelativeRotation(WateringCanTPRotation);
+		WateringCanMesh->SetRelativeScale3D(FVector(WateringCanScale));
+		WateringCanMesh->SetOwnerNoSee(false);    // visible to everyone in Third-Person
+		WateringCanMesh->SetOnlyOwnerSee(false);
+	}
+	else
+	{
+		// First-Person: float the can in front of the First-Person camera so the owner sees it.
+		UCameraComponent* Cam = GetFirstPersonCameraComponent();
+		if (!bWateringCanOnHand || WateringCanMesh->GetAttachParent() != Cam)
+		{
+			WateringCanMesh->AttachToComponent(Cam ? static_cast<USceneComponent*>(Cam) : static_cast<USceneComponent*>(RootComponent), Rules);
+			bWateringCanOnHand = false;
+		}
+		WateringCanMesh->SetRelativeLocation(WateringCanFPOffset);
+		WateringCanMesh->SetRelativeRotation(WateringCanFPRotation);
+		WateringCanMesh->SetRelativeScale3D(FVector(WateringCanFPScale));
+		WateringCanMesh->SetOwnerNoSee(false);
+		WateringCanMesh->SetOnlyOwnerSee(true);   // FP prop at the camera is for the local player only
+	}
+
+	WateringCanMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::None);
+	WateringCanMesh->SetVisibility(true, false);
+	WateringCanMesh->SetHiddenInGame(false, false);
+	WateringCanMesh->MarkRenderStateDirty();
 }
 
 void AShooterCharacter::ToggleThirdPersonView()

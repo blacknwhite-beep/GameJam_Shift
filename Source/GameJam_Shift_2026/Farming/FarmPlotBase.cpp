@@ -20,6 +20,7 @@
 AFarmPlotBase::AFarmPlotBase()
 	: CurrentStage(ECropStage::Empty)
 	, bIsWatered(false)
+	, bAwaitingSleepGrowth(false)
 	, StageDuration(8.0f)
 	, PlantedSeedID(NAME_None)
 	, StageStartTime(0.0f)
@@ -314,6 +315,7 @@ bool AFarmPlotBase::TillPlot()
 
 	CurrentStage = ECropStage::Empty;
 	bIsWatered = false;
+	bAwaitingSleepGrowth = false;
 	PlantedSeedID = NAME_None;
 
 	if (UWorld* World = GetWorld())
@@ -460,6 +462,7 @@ void AFarmPlotBase::ApplyMirroredState(AFarmPlotBase* SourceFarmPlot)
 	PlantedSeedID = SourceFarmPlot->PlantedSeedID;
 	CurrentStage = SourceFarmPlot->CurrentStage;
 	bIsWatered = SourceFarmPlot->bIsWatered;
+	bAwaitingSleepGrowth = SourceFarmPlot->bAwaitingSleepGrowth;
 	HarvestYield = SourceFarmPlot->HarvestYield;
 	HarvestFloatingText = SourceFarmPlot->HarvestFloatingText;
 	MaxCropHealth = SourceFarmPlot->MaxCropHealth;
@@ -524,6 +527,7 @@ void AFarmPlotBase::DestroyCropByZombies()
 {
 	CurrentStage = ECropStage::Empty;
 	bIsWatered = false;
+	bAwaitingSleepGrowth = false;
 	PlantedSeedID = NAME_None;
 	CurrentCropHealth = 0.0f;
 
@@ -621,6 +625,7 @@ bool AFarmPlotBase::PlantSeed(FName SeedID, float InStageDuration)
 	}
 	CurrentStage = ECropStage::Planted;
 	bIsWatered = false;
+	bAwaitingSleepGrowth = false;
 	CurrentCropHealth = MaxCropHealth;
 
 	ConfigureVisualsForSeed(SeedID);
@@ -689,7 +694,46 @@ bool AFarmPlotBase::WaterPlot()
 
 void AFarmPlotBase::AdvanceGrowthStage()
 {
+	// The crop grows through 3 watering phases (Planted -> Sprout -> Growing).
+	// The 4th phase (Mature) is gated behind a night's sleep: finishing the Growing
+	// timer does NOT mature it, it marks the watered crop as awaiting sleep instead.
+	if (CurrentStage == ECropStage::Growing)
+	{
+		bAwaitingSleepGrowth = true;
+		bIsWatered = true; // keep the soil watered so "watered before sleep" grows it the next day
+		if (SoilMesh && WetSoilMaterial)
+		{
+			SoilMesh->SetMaterial(0, WetSoilMaterial);
+		}
+		if (GetWorld())
+		{
+			GetWorld()->GetTimerManager().ClearTimer(GrowthTimerHandle);
+		}
+
+		UpdateCropMeshForStage(CurrentStage);
+		OnStageChanged(CurrentStage);
+
+		const FString SleepHint = TEXT("The crop is watered and ready. Sleep in the farmhouse bed to let it grow overnight.");
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 6.0f, FColor(255, 210, 110), SleepHint);
+		}
+		if (UWorld* World = GetWorld())
+		{
+			if (UGameInstance* GI = World->GetGameInstance())
+			{
+				if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+				{
+					Sub->ShowCenterMessage(SleepHint, 4.0f, FLinearColor(1.0f, 0.8f, 0.35f, 1.0f));
+				}
+			}
+		}
+		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("FarmPlot: %s finished 3rd phase (Growing), watered & awaiting sleep to mature."), *GetName());
+		return;
+	}
+
 	bIsWatered = false;
+	bAwaitingSleepGrowth = false;
 	if (SoilMesh && DrySoilMaterial)
 	{
 		SoilMesh->SetMaterial(0, DrySoilMaterial);
@@ -703,9 +747,6 @@ void AFarmPlotBase::AdvanceGrowthStage()
 		break;
 	case ECropStage::Sprout:
 		CurrentStage = ECropStage::Growing;
-		break;
-	case ECropStage::Growing:
-		CurrentStage = ECropStage::Mature;
 		break;
 	default:
 		break;
@@ -721,7 +762,7 @@ void AFarmPlotBase::AdvanceGrowthStage()
 
 	if (GEngine)
 	{
-		const FColor StageColor = (CurrentStage == ECropStage::Mature) ? FColor::Yellow : FColor::Green;
+		const FColor StageColor = FColor::Green;
 		GEngine->AddOnScreenDebugMessage(-1, 4.0f, StageColor,
 			FString::Printf(TEXT(">>> [FARMING] Crop on %s grew to: %s!"), 
 				*GetName(), *UEnum::GetValueAsString(CurrentStage)));
@@ -729,15 +770,41 @@ void AFarmPlotBase::AdvanceGrowthStage()
 
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("FarmPlot: %s advanced to stage: %s."),
 		*GetName(), *UEnum::GetValueAsString(CurrentStage));
+}
 
-	if (CurrentStage == ECropStage::Mature)
+void AFarmPlotBase::MatureAfterSleep()
+{
+	if (!IsAwaitingSleepGrowth())
+	{
+		return;
+	}
+
+	bAwaitingSleepGrowth = false;
+	bIsWatered = false;
+	if (GetWorld())
 	{
 		GetWorld()->GetTimerManager().ClearTimer(GrowthTimerHandle);
-		if (MatureSparkleVFX)
-		{
-			UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), MatureSparkleVFX, GetActorLocation() + FVector(0.0f, 0.0f, 80.0f));
-		}
 	}
+	if (SoilMesh && DrySoilMaterial)
+	{
+		SoilMesh->SetMaterial(0, DrySoilMaterial);
+	}
+	OnSoilDried();
+
+	CurrentStage = ECropStage::Mature;
+	UpdateCropMeshForStage(CurrentStage);
+	OnStageChanged(CurrentStage);
+
+	if (MatureSparkleVFX && GetWorld())
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), MatureSparkleVFX, GetActorLocation() + FVector(0.0f, 0.0f, 80.0f));
+	}
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Yellow,
+			FString::Printf(TEXT(">>> [FARMING] Crop on %s grew overnight and is ready to harvest!"), *GetName()));
+	}
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("FarmPlot: %s matured after sleep (watered before sleeping)."), *GetName());
 }
 
 bool AFarmPlotBase::Harvest(FName& OutItemID, int32& OutQuantity)
@@ -757,6 +824,7 @@ bool AFarmPlotBase::Harvest(FName& OutItemID, int32& OutQuantity)
 	// Reset plot to empty
 	CurrentStage = ECropStage::Empty;
 	bIsWatered = false;
+	bAwaitingSleepGrowth = false;
 	PlantedSeedID = NAME_None;
 	GetWorld()->GetTimerManager().ClearTimer(GrowthTimerHandle);
 

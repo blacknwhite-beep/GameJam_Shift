@@ -226,6 +226,31 @@ void UDimensionShiftSubsystem::SyncFarmPlotsToCombat(UWorld* World) const
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Mirrored %d Farm plots -> Combat world."), SyncedCount);
 }
 
+void UDimensionShiftSubsystem::MatureSleepReadyCrops(UWorld* World)
+{
+	if (!World)
+	{
+		return;
+	}
+
+	int32 MaturedCount = 0;
+	for (TActorIterator<AFarmPlotBase> It(World); It; ++It)
+	{
+		AFarmPlotBase* Plot = *It;
+		// Only the Farm-world source plots own crop state; Combat plots are mirrored from them.
+		if (IsValid(Plot) && Plot->GetActorLocation().Z < -10000.0f && Plot->IsAwaitingSleepGrowth())
+		{
+			Plot->MatureAfterSleep();
+			++MaturedCount;
+		}
+	}
+
+	if (MaturedCount > 0)
+	{
+		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: %d watered crops matured after sleep at dawn."), MaturedCount);
+	}
+}
+
 void UDimensionShiftSubsystem::ApplyDimensionLighting(UWorld* World, EGameDimension Dimension) const
 {
 	if (!World)
@@ -915,6 +940,8 @@ void UDimensionShiftSubsystem::TickDayNightClock(UWorld* World, float DeltaTime)
 	if (bWasNight && !bNowNight)
 	{
 		++CurrentDay;
+		// A new day: any crop watered through its 3rd phase before the player slept now matures.
+		MatureSleepReadyCrops(World);
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(9181, 5.0f, FColor::Green,
@@ -958,6 +985,7 @@ void UDimensionShiftSubsystem::AdvanceTimeByRealMinute(UWorld* WorldContext)
 	if (bWasNight && !bNowNight)
 	{
 		++CurrentDay;
+		MatureSleepReadyCrops(World);
 	}
 
 	if (World)

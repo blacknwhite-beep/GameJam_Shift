@@ -233,6 +233,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dimension Shift|Farm Level")
 	void SyncFarmPlotsToCombat(UWorld* World) const;
 
+	/** At dawn, matures every Farm-world crop that was watered through its 3rd phase before the player slept. */
+	void MatureSleepReadyCrops(UWorld* World);
+
 	/** Returns formatted 24-hour string like "06:00" or "23:45". */
 	FString GetFormattedTime24H() const;
 

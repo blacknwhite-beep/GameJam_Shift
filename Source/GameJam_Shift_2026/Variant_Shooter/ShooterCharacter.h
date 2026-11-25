@@ -23,6 +23,8 @@ class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class USpotLightComponent;
 class UShooterWeaponWheelWidget;
+class UStaticMeshComponent;
+class UStaticMesh;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
@@ -192,6 +194,45 @@ protected:
 
 	/** Toggles between First-Person and Third-Person camera [V] to view the full Animated Farmer */
 	void ToggleThirdPersonView();
+
+	/** Watering-can prop shown in the player's hand only in the Farm world while the Watering Can tool is equipped */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Farming|Watering Can")
+	TObjectPtr<UStaticMeshComponent> WateringCanMesh;
+
+	/** Uniform scale for the imported GLB watering can in Third-Person (mesh is ~7600 units wide) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Watering Can", meta = (ClampMin = "0.0001"))
+	float WateringCanScale = 0.0055f;
+
+	/** Smaller scale in First-Person so the can doesn't fill the screen (mesh pivot sits at its base) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Watering Can", meta = (ClampMin = "0.0001"))
+	float WateringCanFPScale = 0.0032f;
+
+	/** Camera-local placement of the watering can in First-Person (X=forward, Y=right, Z=down) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Watering Can")
+	FVector WateringCanFPOffset = FVector(40.0f, 24.0f, -30.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Watering Can")
+	FRotator WateringCanFPRotation = FRotator(-15.0f, -55.0f, 15.0f);
+
+	/** hand_r-local placement of the watering can in Third-Person. Z=-27.5 drops the mesh so the handle loop (mesh-local Z~5000 * 0.0055) sits in the palm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Watering Can")
+	FVector WateringCanTPOffset = FVector(0.0f, 0.0f, -27.5f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Watering Can")
+	FRotator WateringCanTPRotation = FRotator(0.0f, 0.0f, 0.0f);
+
+	/** DEBUG: loop the watering animation in Third-Person so the hand/can grip can be tuned live (Farm world only) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Watering Can")
+	bool bDebugLoopWateringGrip = false;
+
+	/** Updates watering-can attachment & visibility for the current view/world/tool (called each Tick) */
+	void UpdateWateringCanVisibility();
+
+	/** Applies the debug watering-grip loop (forces Third-Person + Watering Can tool + looping clip) */
+	void UpdateWateringDebugLoop();
+
+	/** True while the watering can is attached to the hand bone (Third-Person), used to avoid per-frame re-attach */
+	bool bWateringCanOnHand = false;
 
 	UPROPERTY(EditAnywhere, Category ="Destruction", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
 	float RespawnTime = 5.0f;

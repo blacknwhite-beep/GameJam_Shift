@@ -85,6 +85,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Farming|State")
 	bool bIsWatered;
 
+	/** True after the 3rd (Growing) watering completes: the crop is watered and only a night's sleep will mature it */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Farming|State")
+	bool bAwaitingSleepGrowth = false;
+
 	/** Duration in seconds required for a watered crop to advance one stage */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Farming|Configuration", meta = (ClampMin = "1.0"))
 	float StageDuration;
@@ -211,6 +215,13 @@ public:
 	/** Returns true if the crop is fully mature and ready to harvest */
 	UFUNCTION(BlueprintPure, Category = "Farming|Query")
 	bool CanHarvest() const { return CurrentStage == ECropStage::Mature; }
+
+	/** Returns true when a watered Growing crop is waiting for the player to sleep so it can mature the next day */
+	UFUNCTION(BlueprintPure, Category = "Farming|Query")
+	bool IsAwaitingSleepGrowth() const { return bAwaitingSleepGrowth && CurrentStage == ECropStage::Growing; }
+
+	/** Called at the next dawn if the crop was watered before the player slept; matures the crop to the 4th phase */
+	void MatureAfterSleep();
 
 	/** Returns progress from 0.0 to 1.0 of the current growth stage */
 	UFUNCTION(BlueprintPure, Category = "Farming|Query")
