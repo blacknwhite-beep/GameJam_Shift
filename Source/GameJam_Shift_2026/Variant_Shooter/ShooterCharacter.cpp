@@ -28,7 +28,8 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
-#include "Animation/AnimSingleNodeInstance.h"
+#include "Components/PrimitiveComponent.h"
+#include "Variant_Shooter/AI/ZombieAnimInstance.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "Camera/CameraComponent.h"
@@ -105,24 +106,35 @@ namespace
 		// kneel/dig/pat animation is actually visible; the player's prior view is restored after.
 		bool bSavedThirdPersonForPlant = false;
 		bool bForcedThirdPersonForPlant = false;
+		int32 ChosenCamSideIndex = -1;
 	};
 
 	/**
-	 * Guarantees USkeletalMeshComponent has a live UAnimSingleNodeInstance before calling PlayAnimation.
-	 * Fixes UE5 quirk where SetAnimInstanceClass(nullptr) clears AnimScriptInstance while leaving
-	 * AnimationMode == AnimationSingleNode, causing subsequent PlayAnimation() calls to silently no-op in T-Pose!
+	 * Guarantees BodyMesh runs a live UZombieAnimInstance (our skeleton-agnostic C++ FAnimInstanceProxy
+	 * sequence evaluator proven on every character in Lvl_Combat) with head-look disabled.
+	 * Eliminates UE5 SingleNode silent T-pose no-ops after runtime mesh swaps and dimension shifts.
 	 */
-	void EnsureFarmerSingleNodeReady(USkeletalMeshComponent* BodyMesh)
+	UZombieAnimInstance* EnsureFarmerAnimInstance(USkeletalMeshComponent* BodyMesh)
 	{
 		if (!BodyMesh || !BodyMesh->GetSkeletalMeshAsset())
 		{
-			return;
+			return nullptr;
 		}
-		if (BodyMesh->GetAnimationMode() != EAnimationMode::AnimationSingleNode || BodyMesh->GetSingleNodeInstance() == nullptr)
+		BodyMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+		BodyMesh->bEnableUpdateRateOptimizations = false;
+
+		UZombieAnimInstance* FAnim = Cast<UZombieAnimInstance>(BodyMesh->GetAnimInstance());
+		if (BodyMesh->GetAnimationMode() != EAnimationMode::AnimationBlueprint || !FAnim)
 		{
-			BodyMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint, false);
-			BodyMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode, true);
+			BodyMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+			BodyMesh->SetAnimInstanceClass(UZombieAnimInstance::StaticClass());
+			FAnim = Cast<UZombieAnimInstance>(BodyMesh->GetAnimInstance());
 		}
+		if (FAnim)
+		{
+			FAnim->SetHeadLookAngles(false, false, 0.0f, 0.0f);
+		}
+		return FAnim;
 	}
 
 	void PlayFarmerAnimSafe(USkeletalMeshComponent* BodyMesh, UAnimSequence* Anim, bool bLooping, float PlayRate)
@@ -131,9 +143,49 @@ namespace
 		{
 			return;
 		}
-		EnsureFarmerSingleNodeReady(BodyMesh);
-		BodyMesh->PlayAnimation(Anim, bLooping);
-		BodyMesh->SetPlayRate(PlayRate);
+		if (UZombieAnimInstance* FAnim = EnsureFarmerAnimInstance(BodyMesh))
+		{
+			FAnim->PlayZombieSequence(Anim, bLooping, PlayRate);
+		}
+	}
+
+	/**
+	 * Switches BodyMesh between:
+	 *  - Third-Person (bShowBodyToOwner = true): FirstPersonPrimitiveType::None + OwnerNoSee=false so the
+	 *    full 3D Farmer is visible in the viewport AND casts a dynamic shadow.
+	 *    (Fixes the invisible-body bug caused by BaseClass WorldSpaceRepresentation forcing bOwnerNoSee=true!)
+	 *  - First-Person (bShowBodyToOwner = false): WorldSpaceRepresentation + OwnerNoSee=true so the body
+	 *    never clips into the First-Person camera/gun while still casting a live animated VSM ground shadow.
+	 */
+	void ApplyFarmerViewVisibility(AShooterCharacter* Character, bool bShowBodyToOwner)
+	{
+		if (!Character)
+		{
+			return;
+		}
+		if (USkeletalMeshComponent* Body = Character->GetMesh())
+		{
+			Body->SetFirstPersonPrimitiveType(
+				bShowBodyToOwner
+					? EFirstPersonPrimitiveType::None
+					: EFirstPersonPrimitiveType::WorldSpaceRepresentation);
+			Body->SetOwnerNoSee(!bShowBodyToOwner);
+			Body->SetOnlyOwnerSee(false);
+			Body->SetHiddenInGame(false, false);
+			Body->SetVisibility(true, false);
+			Body->SetCastShadow(true);
+			Body->bCastHiddenShadow = true;
+			Body->UnHideBoneByName(FName("Head"));
+			Body->MarkRenderStateDirty();
+		}
+		if (USkeletalMeshComponent* FP = Character->GetFirstPersonMesh())
+		{
+			FP->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::None);
+			FP->SetVisibility(false, false);
+			FP->SetHiddenInGame(true, false);
+			FP->SetCastShadow(false);
+			FP->bCastHiddenShadow = false;
+		}
 	}
 
 	/** Forces Third-Person view for the planting one-shot and remembers the player's prior view. */
@@ -141,24 +193,24 @@ namespace
 	{
 		State.bSavedThirdPersonForPlant = bIsThirdPersonView;
 		State.bForcedThirdPersonForPlant = !bIsThirdPersonView;
-		if (!State.bForcedThirdPersonForPlant)
-		{
-			return;
-		}
+		State.ChosenCamSideIndex = -1;
 		bIsThirdPersonView = true;
-		if (USkeletalMeshComponent* Body = Character->GetMesh())
+
+		ApplyFarmerViewVisibility(Character, true);
+		if (State.bForcedThirdPersonForPlant)
 		{
-			Body->UnHideBoneByName(FName("head"));
+			// Hide head only for the first 50ms while camera begins pulling back out of the Farmer's eyes
+			if (USkeletalMeshComponent* Body = Character->GetMesh())
+			{
+				Body->HideBoneByName(FName("Head"), PBO_None);
+			}
 		}
+
 		if (UCameraComponent* Cam = Character->GetFirstPersonCameraComponent())
 		{
 			Cam->bUsePawnControlRotation = false;
 			Cam->SetUsingAbsoluteLocation(true);
 			Cam->SetUsingAbsoluteRotation(true);
-		}
-		if (USkeletalMeshComponent* FP = Character->GetFirstPersonMesh())
-		{
-			FP->SetVisibility(false, false);
 		}
 	}
 
@@ -166,21 +218,20 @@ namespace
 	void EndPlantThirdPerson(AShooterCharacter* Character, FFarmerActionAnimState& State, bool& bIsThirdPersonView,
 		const FVector& DefaultRelLoc, const FRotator& DefaultRelRot, bool bSavedPawnRot)
 	{
+		State.ChosenCamSideIndex = -1;
 		if (!State.bForcedThirdPersonForPlant)
 		{
+			ApplyFarmerViewVisibility(Character, bIsThirdPersonView);
 			return;
 		}
 		State.bForcedThirdPersonForPlant = false;
 		bIsThirdPersonView = State.bSavedThirdPersonForPlant;
+		ApplyFarmerViewVisibility(Character, bIsThirdPersonView);
 		if (State.bSavedThirdPersonForPlant)
 		{
 			return; // player was already in Third-Person; its own camera tick handles it
 		}
 
-		if (USkeletalMeshComponent* Body = Character->GetMesh())
-		{
-			Body->HideBoneByName(FName("head"), PBO_None);
-		}
 		if (UCameraComponent* Cam = Character->GetFirstPersonCameraComponent())
 		{
 			Cam->SetUsingAbsoluteLocation(false);
@@ -1241,11 +1292,12 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 		}
 
 		// Clear character weapon anim instances so ABP_FP_Pistol does not tick on inactive weapon
-		// (NEVER call SetAnimInstanceClass(nullptr) on GetMesh() when bUsingFarmerMesh is true, or UE5 clears UAnimSingleNodeInstance into T-Pose!)
+		// (Do NOT propagate hidden flags to FirstPersonCameraComponent children, and never clear GetMesh()'s UZombieAnimInstance!)
 		if (GetFirstPersonMesh())
 		{
-			GetFirstPersonMesh()->SetVisibility(false, true);
-			GetFirstPersonMesh()->SetHiddenInGame(true, true);
+			GetFirstPersonMesh()->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::None);
+			GetFirstPersonMesh()->SetVisibility(false, false);
+			GetFirstPersonMesh()->SetHiddenInGame(true, false);
 			GetFirstPersonMesh()->SetCastShadow(false);
 			GetFirstPersonMesh()->bCastHiddenShadow = false;
 			GetFirstPersonMesh()->SetAnimInstanceClass(nullptr);
@@ -1253,6 +1305,11 @@ void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FV
 		if (GetMesh() && !bUsingFarmerMesh)
 		{
 			GetMesh()->SetAnimInstanceClass(nullptr);
+		}
+		else if (bUsingFarmerMesh)
+		{
+			EnsureFarmerAnimInstance(GetMesh());
+			ApplyFarmerViewVisibility(this, bIsThirdPersonView);
 		}
 
 		// Show Farming HUD (WBP_FarmingHUD) and hide Combat HUD / weapon slot
@@ -2046,26 +2103,34 @@ void AShooterCharacter::InitializeFarmerCharacterMesh()
 		bSavedUsePawnControlRotation = Camera->bUsePawnControlRotation;
 	}
 
-	// Swap the main character body mesh to the Animated Low-Poly Cubic Farmer
+	// Swap the main character body mesh to the Animated Low-Poly Cubic Farmer with bReinitPose=true
+	// and drive animations through UZombieAnimInstance (FAnimInstanceProxy) so poses & shadows NEVER freeze in T-Pose!
 	BodyMesh->SetAnimInstanceClass(nullptr);
-	BodyMesh->SetSkeletalMeshAsset(FarmerMesh);
+	BodyMesh->SetSkeletalMesh(FarmerMesh, true);
 	BodyMesh->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -96.0f), FRotator(0.0f, -90.0f, 0.0f));
-	BodyMesh->SetOwnerNoSee(false);
-	BodyMesh->SetCastShadow(true);
-	BodyMesh->bCastHiddenShadow = true;
 	BodyMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	BodyMesh->bEnableUpdateRateOptimizations = false;
-	BodyMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	BodyMesh->SetAnimationMode(EAnimationMode::AnimationBlueprint);
+	BodyMesh->SetAnimInstanceClass(UZombieAnimInstance::StaticClass());
 
-	// Hide the old gray Unreal Mannequin FP arms permanently & disable any hidden shadow casting
-	if (GetFirstPersonMesh())
+	// Disable visibility and shadow casting on any auxiliary character SkeletalMeshComponents (e.g. FirstPersonMesh
+	// SKM_Manny_Simple) WITHOUT propagating hidden flags to FirstPersonCameraComponent or its children!
+	TInlineComponentArray<USkeletalMeshComponent*> CharSkelMeshes(this);
+	for (USkeletalMeshComponent* Comp : CharSkelMeshes)
 	{
-		GetFirstPersonMesh()->SetVisibility(false, true);
-		GetFirstPersonMesh()->SetHiddenInGame(true, true);
-		GetFirstPersonMesh()->SetCastShadow(false);
-		GetFirstPersonMesh()->bCastHiddenShadow = false;
-		GetFirstPersonMesh()->SetAnimInstanceClass(nullptr);
+		if (Comp && Comp != BodyMesh && Comp->GetOwner() == this)
+		{
+			Comp->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::None);
+			Comp->SetVisibility(false, false);
+			Comp->SetHiddenInGame(true, false);
+			Comp->SetCastShadow(false);
+			Comp->bCastHiddenShadow = false;
+			Comp->SetAnimInstanceClass(nullptr);
+			Comp->MarkRenderStateDirty();
+		}
 	}
+
+	ApplyFarmerViewVisibility(this, bIsThirdPersonView);
 
 	// Load the Farmer animation sequences from the pack + retargeted Mixamo "Plant A Plant" sequence
 	const TCHAR* AnimBase = TEXT("/Game/3D_LOW_POLY_FarmerPack/Animations/Farmer/");
@@ -2092,23 +2157,22 @@ void AShooterCharacter::InitializeFarmerCharacterMesh()
 		BodyMesh->RefreshBoneTransforms();
 	}
 
-	// Calibrate exact standing head-bone-to-camera mapping BEFORE hiding head bone so First-Person camera matches animations 1:1
+	// Calibrate exact standing head-bone-to-camera mapping so First-Person tool animations match head sway 1:1
 	if (UCameraComponent* Camera = GetFirstPersonCameraComponent())
 	{
 		ActionState.StandingCamActorLocalOffset = GetActorTransform().InverseTransformPosition(Camera->GetComponentLocation());
 	}
-	if (BodyMesh->GetBoneIndex(FName("head")) != INDEX_NONE)
+	if (BodyMesh->GetBoneIndex(FName("Head")) != INDEX_NONE)
 	{
-		ActionState.StandingHeadActorLocalPos = GetActorTransform().InverseTransformPosition(BodyMesh->GetBoneLocation(FName("head")));
-		const FQuat IdleHeadWorldQuat = BodyMesh->GetBoneQuaternion(FName("head"), EBoneSpaces::WorldSpace);
+		ActionState.StandingHeadActorLocalPos = GetActorTransform().InverseTransformPosition(BodyMesh->GetBoneLocation(FName("Head")));
+		const FQuat IdleHeadWorldQuat = BodyMesh->GetBoneQuaternion(FName("Head"), EBoneSpaces::WorldSpace);
 		ActionState.HeadBoneToEyeLocalQuat = IdleHeadWorldQuat.Inverse() * GetActorQuat();
 		ActionState.bCalibrated = true;
 	}
 
-	// Hide only the head bone in First-Person so the player sees their Farmer arms/hands/overalls & shadow without head clipping
-	BodyMesh->HideBoneByName(FName("head"), PBO_None);
-
-	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("ShooterCharacter: Equipped Animated Cubic Farmer (SKM_Farmer_male) as main character."));
+	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("ShooterCharacter: Equipped Animated Cubic Farmer (SKM_Farmer_male, AnimInst=%s, PlantAnim=%s)."),
+		*GetNameSafe(BodyMesh->GetAnimInstance()),
+		*GetNameSafe(ActionState.PlantAnim.Get()));
 }
 
 void AShooterCharacter::PlayFarmerOneShotAnim(UAnimSequence* Anim, float PlayRate)
@@ -2188,13 +2252,19 @@ void AShooterCharacter::UpdateFarmerAnimation(float DeltaTime)
 		const float Elapsed = FMath::Clamp(TotalDur - FarmerOneShotRemaining, 0.0f, TotalDur);
 		const float Progress = FMath::Clamp(Elapsed / TotalDur, 0.0f, 1.0f);
 
-		// Ensure the one-shot animation is actively ticking on UAnimSingleNodeInstance (never frozen in T-Pose!)
-		EnsureFarmerSingleNodeReady(BodyMesh);
+		// Ensure UZombieAnimInstance stays active on BodyMesh for the entire one-shot duration (never frozen in T-Pose!)
+		EnsureFarmerAnimInstance(BodyMesh);
 
-		// 1. During "Plant A Plant": position Farmer at plot edge, frame full Farmer + Arms + Soil Plot in cinematic 3/4 Third-Person,
-		//    and pop the seedling visible right between both hands at 45% progress!
+		// 1. During "Plant A Plant": position Farmer at plot edge, frame full VISIBLE Farmer + Arms + Soil Plot in an
+		//    unobstructed inside-the-fence 3/4 Third-Person view, and pop the seedling visible right between both hands at 45%!
 		if (ActionState.bIsPlanting)
 		{
+			// Guarantee BodyMesh is visible in Third-Person (FirstPersonPrimitiveType::None + OwnerNoSee=false)
+			if (BodyMesh->FirstPersonPrimitiveType != EFirstPersonPrimitiveType::None)
+			{
+				ApplyFarmerViewVisibility(this, true);
+			}
+
 			const float StepAlpha = FMath::SmoothStep(0.0f, 0.30f, Elapsed);
 			const FVector NewActorLoc = FMath::Lerp(ActionState.PlantStartActorLoc, ActionState.PlantTargetActorLoc, StepAlpha);
 			const float NewYaw = FMath::FixedTurn(ActionState.PlantStartYaw, ActionState.PlantTargetYaw, FMath::Abs(FMath::FindDeltaAngleDegrees(ActionState.PlantStartYaw, ActionState.PlantTargetYaw)) * StepAlpha);
@@ -2216,69 +2286,93 @@ void AShooterCharacter::UpdateFarmerAnimation(float DeltaTime)
 					PC->SetControlRotation(ExitFirstPersonRot);
 
 					const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 96.0f;
-					const float GroundZ = GetActorLocation().Z - HalfHeight;
+					const float GroundZ = ActionState.PlantTargetActorLoc.Z - HalfHeight;
+					const FVector KneelBase(ActionState.PlantTargetActorLoc.X, ActionState.PlantTargetActorLoc.Y, GroundZ);
 					const FRotator PlantFacing(0.0f, ActionState.PlantTargetYaw, 0.0f);
 					const FVector Fwd = FRotationMatrix(PlantFacing).GetUnitAxis(EAxis::X);
 					const FVector Right = FRotationMatrix(PlantFacing).GetUnitAxis(EAxis::Y);
 
-					const float PelvisWorldZ = (BodyMesh->GetBoneIndex(FName("pelvis")) != INDEX_NONE)
-						? BodyMesh->GetBoneLocation(FName("pelvis")).Z
-						: (GroundZ + 52.0f);
+					const float PelvisHeightAboveGround = (BodyMesh->GetBoneIndex(FName("pelvis")) != INDEX_NONE)
+						? FMath::Clamp(BodyMesh->GetBoneLocation(FName("pelvis")).Z - GroundZ, 36.0f, 88.0f)
+						: 48.0f;
 
-					// Exact center of action halfway between the kneeling Farmer and the soil plot so BOTH are dead-center in frame!
-					const FVector ActionFocusPoint = FVector(
-						GetActorLocation().X,
-						GetActorLocation().Y,
-						FMath::Clamp(PelvisWorldZ + 8.0f, GroundZ + 44.0f, GroundZ + 96.0f)) + Fwd * 22.0f;
+					// Midpoint between the kneeling Farmer and his hands on the soil plot so BOTH stay dead-center in frame!
+					const FVector ActionFocusPoint = KneelBase + Fwd * 24.0f + FVector(0.0f, 0.0f, PelvisHeightAboveGround + 4.0f);
+					const FVector TraceOrigin = KneelBase + Fwd * 24.0f + FVector(0.0f, 0.0f, 54.0f);
 
-					const FVector CamRightCandidate = FVector(GetActorLocation().X, GetActorLocation().Y, GroundZ + 124.0f) - Fwd * 175.0f + Right * 115.0f;
-					const FVector CamLeftCandidate  = FVector(GetActorLocation().X, GetActorLocation().Y, GroundZ + 124.0f) - Fwd * 175.0f - Right * 115.0f;
+					// 4 closer 3/4 candidates (inside the wooden garden fence!) tested against ECC_Visibility (fences/walls/barn)
+					const FVector Candidates[4] = {
+						TraceOrigin - Fwd * 110.0f + Right * 122.0f + FVector(0.0f, 0.0f, 62.0f), // 0: Rear-Right 3/4
+						TraceOrigin - Fwd * 110.0f - Right * 122.0f + FVector(0.0f, 0.0f, 62.0f), // 1: Rear-Left 3/4
+						TraceOrigin + Fwd * 92.0f  + Right * 130.0f + FVector(0.0f, 0.0f, 60.0f), // 2: Front-Right 3/4 (if fence is behind Farmer)
+						TraceOrigin + Fwd * 92.0f  - Right * 130.0f + FVector(0.0f, 0.0f, 60.0f)  // 3: Front-Left 3/4
+					};
 
-					FVector ChosenThirdPersonPos = CamRightCandidate;
-					if (UWorld* World = GetWorld())
+					UWorld* World = GetWorld();
+					FCollisionQueryParams CamParams(SCENE_QUERY_STAT(PlantThirdPersonCam), false);
+					CamParams.AddIgnoredActor(this);
+					if (World)
 					{
-						FHitResult HitR, HitL;
-						FCollisionQueryParams CamParams(SCENE_QUERY_STAT(PlantThirdPersonCam), false);
-						CamParams.AddIgnoredActor(this);
-						if (AFarmPlotBase* Plot = ActionState.PendingPlantPlot.Get())
+						for (TActorIterator<AFarmPlotBase> PlotIt(World); PlotIt; ++PlotIt)
 						{
-							CamParams.AddIgnoredActor(Plot);
+							CamParams.AddIgnoredActor(*PlotIt);
 						}
-						const bool bBlockedR = World->LineTraceSingleByChannel(HitR, ActionFocusPoint, CamRightCandidate, ECC_Camera, CamParams);
-						if (bBlockedR)
+					}
+
+					const FCollisionShape ProbeSphere = FCollisionShape::MakeSphere(15.0f);
+					if (ActionState.ChosenCamSideIndex < 0 || ActionState.ChosenCamSideIndex >= 4)
+					{
+						int32 BestIdx = 0;
+						float BestClearFraction = -1.0f;
+						for (int32 i = 0; i < 4; ++i)
 						{
-							const bool bBlockedL = World->LineTraceSingleByChannel(HitL, ActionFocusPoint, CamLeftCandidate, ECC_Camera, CamParams);
-							if (!bBlockedL || HitL.Time > HitR.Time)
+							FHitResult SweepHit;
+							const bool bHitVis = World && World->SweepSingleByChannel(
+								SweepHit, TraceOrigin, Candidates[i], FQuat::Identity, ECC_Visibility, ProbeSphere, CamParams);
+							const float ClearFrac = bHitVis ? SweepHit.Time : 1.0f;
+							if (ClearFrac > BestClearFraction + 0.05f)
 							{
-								ChosenThirdPersonPos = bBlockedL
-									? (HitL.ImpactPoint + (ActionFocusPoint - CamLeftCandidate).GetSafeNormal() * 15.0f)
-									: CamLeftCandidate;
+								BestClearFraction = ClearFrac;
+								BestIdx = i;
+								if (ClearFrac >= 0.99f)
+								{
+									break; // completely unobstructed!
+								}
 							}
-							else
-							{
-								ChosenThirdPersonPos = HitR.ImpactPoint + (ActionFocusPoint - CamRightCandidate).GetSafeNormal() * 15.0f;
-							}
+						}
+						ActionState.ChosenCamSideIndex = BestIdx;
+					}
+
+					FVector ChosenThirdPersonPos = Candidates[ActionState.ChosenCamSideIndex];
+					if (World)
+					{
+						FHitResult SweepHit;
+						if (World->SweepSingleByChannel(
+							SweepHit, TraceOrigin, ChosenThirdPersonPos, FQuat::Identity, ECC_Visibility, ProbeSphere, CamParams))
+						{
+							const float SafeAlpha = FMath::Clamp(SweepHit.Time - 0.10f, 0.38f, 1.0f);
+							ChosenThirdPersonPos = FMath::Lerp(TraceOrigin, ChosenThirdPersonPos, SafeAlpha);
 						}
 					}
 
 					const FRotator ChosenThirdPersonRot = (ActionFocusPoint - ChosenThirdPersonPos).Rotation();
 
-					// Smoothly pull out from First-Person (0.30s) and return to First-Person at completion (0.35s)
+					// Smoothly pull out from First-Person (0.28s) and return to First-Person at completion (0.35s)
 					float ThirdPersonBlend = 1.0f;
 					if (ActionState.bForcedThirdPersonForPlant)
 					{
-						const float InAlpha  = FMath::SmoothStep(0.0f, 0.30f, Elapsed);
+						const float InAlpha  = FMath::SmoothStep(0.0f, 0.28f, Elapsed);
 						const float OutAlpha = FMath::SmoothStep(0.0f, 0.35f, FMath::Max(0.0f, FarmerOneShotRemaining));
 						ThirdPersonBlend = FMath::Min(InAlpha, OutAlpha);
 
-						// Keep head visible whenever camera is pulled back; re-hide just before arriving back at First-Person eyes
-						if (FarmerOneShotRemaining < 0.09f)
+						// Keep head visible whenever camera is pulled back; hide only right at the eye transition endpoints
+						if (FarmerOneShotRemaining < 0.08f || Elapsed < 0.05f)
 						{
-							BodyMesh->HideBoneByName(FName("head"), PBO_None);
+							BodyMesh->HideBoneByName(FName("Head"), PBO_None);
 						}
-						else if (Elapsed > 0.05f)
+						else
 						{
-							BodyMesh->UnHideBoneByName(FName("head"));
+							BodyMesh->UnHideBoneByName(FName("Head"));
 						}
 					}
 
@@ -2390,36 +2484,43 @@ void AShooterCharacter::UpdateFarmerAnimation(float DeltaTime)
 			: FarmerAnim_Idle;
 	}
 
-	const bool bSingleNodeMissingOrStopped = (BodyMesh->GetSingleNodeInstance() == nullptr) || !BodyMesh->IsPlaying();
-	if (DesiredAnim && (CurrentFarmerAnim != DesiredAnim || bSingleNodeMissingOrStopped))
+	UZombieAnimInstance* FAnim = EnsureFarmerAnimInstance(BodyMesh);
+	if (DesiredAnim && (CurrentFarmerAnim != DesiredAnim || !FAnim))
 	{
 		PlayFarmerAnimSafe(BodyMesh, DesiredAnim, true, PlayRate);
 		CurrentFarmerAnim = DesiredAnim;
 	}
-	else if (DesiredAnim)
+	else if (DesiredAnim && FAnim)
 	{
-		BodyMesh->SetPlayRate(PlayRate);
+		FAnim->SetZombiePlayRate(PlayRate);
 	}
 }
 
 void AShooterCharacter::ToggleThirdPersonView()
 {
-	if (!bUsingFarmerMesh || bIsSleepingInBed || IsDead())
+	if (!bUsingFarmerMesh || bIsSleepingInBed || GetFarmerActionState(this).bIsPlanting || IsDead())
 	{
 		return;
 	}
 
 	bIsThirdPersonView = !bIsThirdPersonView;
+	ApplyFarmerViewVisibility(this, bIsThirdPersonView);
 
-	if (USkeletalMeshComponent* BodyMesh = GetMesh())
+	// Also toggle third-person gun visibility in Combat when pressing [V]
+	if (CurrentWeapon && CurrentDimension == EGameDimension::Combat)
 	{
-		if (bIsThirdPersonView)
+		if (UStaticMeshComponent* TPGun = CurrentWeapon->GetThirdPersonGunMesh())
 		{
-			BodyMesh->UnHideBoneByName(FName("head"));
+			TPGun->SetFirstPersonPrimitiveType(
+				bIsThirdPersonView
+					? EFirstPersonPrimitiveType::None
+					: EFirstPersonPrimitiveType::WorldSpaceRepresentation);
+			TPGun->SetOwnerNoSee(!bIsThirdPersonView);
+			TPGun->MarkRenderStateDirty();
 		}
-		else
+		if (USkeletalMeshComponent* FPWep = CurrentWeapon->GetFirstPersonMesh())
 		{
-			BodyMesh->HideBoneByName(FName("head"), PBO_None);
+			FPWep->SetVisibility(!bIsThirdPersonView, true);
 		}
 	}
 
@@ -2438,11 +2539,5 @@ void AShooterCharacter::ToggleThirdPersonView()
 			Camera->SetRelativeLocationAndRotation(DefaultCameraRelLocation, DefaultCameraRelRotation);
 			Camera->bUsePawnControlRotation = bSavedUsePawnControlRotation;
 		}
-	}
-
-	if (GetFirstPersonMesh())
-	{
-		// Never unhide the old gray Mannequin FP arms when using the Animated Cubic Farmer
-		GetFirstPersonMesh()->SetVisibility(false, false);
 	}
 }
