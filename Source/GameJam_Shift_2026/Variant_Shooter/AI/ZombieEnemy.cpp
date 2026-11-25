@@ -1017,55 +1017,99 @@ void AZombieEnemy::AttachStumpCap(FName SocketBone, bool bIsHead)
 void AZombieEnemy::SpawnSeveredLimbGib(const FVector& SpawnLoc, const FRotator& SpawnRot, bool bIsHead, bool bIsLeg, const FVector& ShotDirection)
 {
 	UWorld* World = GetWorld();
-	UStaticMesh* MeshAsset = bIsHead
-		? LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"))
-		: LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	UStaticMesh* SphereMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	UStaticMesh* CylinderMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	UStaticMesh* CubeMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
 	UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
-	if (!World || !MeshAsset || !BaseMat)
+	if (!BaseMat)
+	{
+		BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	}
+	if (!World || !SphereMesh || !CylinderMesh || !CubeMesh || !BaseMat)
 	{
 		return;
 	}
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	AActor* GibActor = World->SpawnActor<AActor>(AActor::StaticClass(), SpawnLoc, SpawnRot, Params);
-	if (!GibActor)
+
+	// Base launch direction: along the bullet with a little upward pop and sideways scatter.
+	const FVector Dir = ShotDirection.GetSafeNormal();
+	const FVector UpLift = FVector(FMath::FRandRange(-0.2f, 0.2f), FMath::FRandRange(-0.2f, 0.2f), FMath::FRandRange(0.35f, 0.7f));
+	const FVector LaunchDir = (Dir + UpLift).GetSafeNormal();
+
+	// Spawns one physics-simulating chunk and returns its mesh so callers can layer extra effects.
+	auto SpawnChunk = [&](UStaticMesh* ChunkMeshAsset, const FVector& Loc, const FRotator& Rot, const FVector& Scale,
+	                      const FLinearColor& Color, const FVector& Velocity, const FVector& Spin, float Life)
 	{
-		return;
-	}
+		AActor* Chunk = World->SpawnActor<AActor>(AActor::StaticClass(), Loc, Rot, Params);
+		if (!Chunk)
+		{
+			return;
+		}
+		UStaticMeshComponent* Comp = NewObject<UStaticMeshComponent>(Chunk, TEXT("SeveredChunk"));
+		Comp->SetStaticMesh(ChunkMeshAsset);
+		Chunk->SetRootComponent(Comp);
+		Comp->RegisterComponent();
+		Comp->SetWorldScale3D(Scale);
+		if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(BaseMat, Chunk))
+		{
+			MID->SetVectorParameterValue(TEXT("Color"), Color);
+			MID->SetVectorParameterValue(TEXT("Emissive"), Color * 0.06f);
+			Comp->SetMaterial(0, MID);
+		}
+		// AActor spawned without a root drops its requested location, so set it explicitly after root setup.
+		Chunk->SetActorLocationAndRotation(Loc, Rot, false, nullptr, ETeleportType::TeleportPhysics);
+		Comp->SetCollisionProfileName(TEXT("PhysicsActor"));
+		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->SetCollisionObjectType(ECC_PhysicsBody);
+		Comp->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		Comp->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+		Comp->SetSimulatePhysics(true);
+		Comp->SetEnableGravity(true);
+		Comp->SetLinearDamping(0.12f);
+		Comp->SetAngularDamping(0.18f);
+		Comp->SetPhysicsLinearVelocity(Velocity, false);
+		Comp->SetPhysicsAngularVelocityInDegrees(Spin, false);
+		Chunk->SetLifeSpan(Life);
+	};
 
-	UStaticMeshComponent* GibMesh = NewObject<UStaticMeshComponent>(GibActor, TEXT("SeveredLimbGib"));
-	GibMesh->SetStaticMesh(MeshAsset);
-	const FVector GibScale = bIsHead
-		? FVector(0.22f, 0.20f, 0.24f)
-		: (bIsLeg ? FVector(0.14f, 0.14f, 0.48f) : FVector(0.11f, 0.11f, 0.40f));
-	GibMesh->SetWorldScale3D(GibScale);
+	const FLinearColor Flesh(0.24f, 0.26f, 0.17f, 1.0f);
+	const FLinearColor Bone(0.72f, 0.68f, 0.55f, 1.0f);
+	const FLinearColor Blood(0.35f, 0.015f, 0.012f, 1.0f);
 
-	if (UMaterialInstanceDynamic* SkinMID = UMaterialInstanceDynamic::Create(BaseMat, GibActor))
+	// 1. The main severed limb/head chunk — the big piece that flies off.
+	const FVector MainScale = bIsHead
+		? FVector(0.24f, 0.22f, 0.26f)
+		: (bIsLeg ? FVector(0.15f, 0.15f, 0.52f) : FVector(0.12f, 0.12f, 0.44f));
+	SpawnChunk(bIsHead ? SphereMesh : CylinderMesh, SpawnLoc, SpawnRot, MainScale, Flesh,
+		LaunchDir * FMath::FRandRange(420.0f, 640.0f),
+		FVector(FMath::FRandRange(-620.0f, 620.0f), FMath::FRandRange(-620.0f, 620.0f), FMath::FRandRange(-620.0f, 620.0f)),
+		10.0f);
+
+	// 2. A little exposed-bone shard for a messy, readable sever.
+	SpawnChunk(CubeMesh, SpawnLoc + LaunchDir * 6.0f, SpawnRot, FVector(0.05f, 0.05f, 0.12f), Bone,
+		LaunchDir * FMath::FRandRange(300.0f, 480.0f) + FVector(FMath::FRandRange(-120.0f, 120.0f), FMath::FRandRange(-120.0f, 120.0f), 120.0f),
+		FVector(FMath::FRandRange(-900.0f, 900.0f), FMath::FRandRange(-900.0f, 900.0f), FMath::FRandRange(-900.0f, 900.0f)),
+		10.0f);
+
+	// 3. A spray of small gore/blood droplets that scatter and bounce for extra impact.
+	UE_LOG(LogTemp, Warning, TEXT("[GIB] Spawned severed chunks at %s (head=%d leg=%d)"), *SpawnLoc.ToString(), bIsHead ? 1 : 0, bIsLeg ? 1 : 0);
+
+	const int32 DropletCount = bIsHead ? 6 : 4;
+	for (int32 i = 0; i < DropletCount; ++i)
 	{
-		// Rotting zombie flesh-green tint stained with dark crimson
-		SkinMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.24f, 0.26f, 0.17f, 1.0f));
-		SkinMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.03f, 0.005f, 0.004f, 1.0f));
-		GibMesh->SetMaterial(0, SkinMID);
+		const FVector Scatter(
+			FMath::FRandRange(-0.55f, 0.55f),
+			FMath::FRandRange(-0.55f, 0.55f),
+			FMath::FRandRange(-0.1f, 0.75f));
+		const FVector DropDir = (LaunchDir + Scatter).GetSafeNormal();
+		SpawnChunk(SphereMesh, SpawnLoc + FVector(FMath::FRandRange(-8.0f, 8.0f), FMath::FRandRange(-8.0f, 8.0f), FMath::FRandRange(-8.0f, 8.0f)),
+			FRotator::ZeroRotator,
+			FVector(FMath::FRandRange(0.025f, 0.055f)),
+			i % 3 == 0 ? Bone : Blood,
+			DropDir * FMath::FRandRange(260.0f, 520.0f),
+			FVector(FMath::FRandRange(-720.0f, 720.0f), FMath::FRandRange(-720.0f, 720.0f), FMath::FRandRange(-720.0f, 720.0f)),
+			10.0f);
 	}
-
-	GibMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	GibMesh->SetCollisionObjectType(ECC_PhysicsBody);
-	GibMesh->SetCollisionResponseToAllChannels(ECR_Block);
-	GibMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
-	GibMesh->SetSimulatePhysics(true);
-	GibMesh->SetEnableGravity(true);
-	GibMesh->RegisterComponent();
-	GibActor->SetRootComponent(GibMesh);
-
-	// Launch the severed limb outward along the bullet trajectory with realistic tumbling spin
-	const FVector ImpulseDir = (ShotDirection + FVector(FMath::FRandRange(-0.25f, 0.25f), FMath::FRandRange(-0.25f, 0.25f), 0.55f)).GetSafeNormal();
-	GibMesh->AddImpulse(ImpulseDir * FMath::FRandRange(340.0f, 520.0f), NAME_None, true);
-	GibMesh->AddAngularImpulseInDegrees(
-		FVector(FMath::FRandRange(-520.0f, 520.0f), FMath::FRandRange(-520.0f, 520.0f), FMath::FRandRange(-520.0f, 520.0f)),
-		NAME_None,
-		true
-	);
-
-	GibActor->SetLifeSpan(18.0f);
 }
