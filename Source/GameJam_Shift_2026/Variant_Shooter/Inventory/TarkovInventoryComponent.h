@@ -7,6 +7,7 @@
 #include "TarkovInventoryComponent.generated.h"
 
 class AShooterWeapon;
+class AActor;
 class UUserWidget;
 class UTarkovEquippedSlotWidget;
 class UTarkovHUDWidget;
@@ -50,6 +51,10 @@ struct FInventoryGridItem
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Inventory")
 	TSubclassOf<AShooterWeapon> WeaponClass;
+
+	/** Optional world actor spawned when this backpack item is clicked for placement. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Inventory")
+	TSubclassOf<AActor> PlaceableClass;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Inventory")
 	int32 AmmoCount = 10;

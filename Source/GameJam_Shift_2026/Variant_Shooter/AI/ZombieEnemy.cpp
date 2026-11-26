@@ -3,6 +3,7 @@
 #include "Variant_Shooter/AI/ZombieEnemy.h"
 #include "Variant_Shooter/AI/ZombieAnimInstance.h"
 #include "AIController.h"
+#include "Navigation/PathFollowingComponent.h"
 #include "DimensionShiftSubsystem.h"
 #include "Farming/FarmPlotBase.h"
 #include "ShooterGameMode.h"
@@ -129,8 +130,8 @@ void AZombieEnemy::Tick(float DeltaTime)
 
 	if (bIsDead)
 	{
-		// Smoothly collapse dead crawling zombies flat onto their stomach flush with the ground
-		if (bIsCrawling && GetMesh())
+		// Explosion ragdolls are owned by Chaos; do not animate/settle them flat.
+		if (!bExplosionDeath && bIsCrawling && GetMesh())
 		{
 			const FVector DeadTargetLoc(-65.0f, 0.0f, -30.0f);
 			const FRotator DeadTargetRot(0.0f, MeshYawOffset, 82.0f);
@@ -185,6 +186,14 @@ void AZombieEnemy::Tick(float DeltaTime)
 
 	if (bStartMenuOpen)
 	{
+		if (bCropPursuitActive)
+		{
+			StopAIMovement();
+			bMemoryMoveIssued = false;
+			bHasRoamTarget = false;
+			NextRoamTime = World->GetTimeSeconds();
+		}
+		ClearCropTarget(false);
 		bAwarePlayer = false;
 		bCanSeePlayer = false;
 		if (UZombieAnimInstance* ZAnim = GetZombieAnimInstance())
@@ -203,6 +212,7 @@ void AZombieEnemy::Tick(float DeltaTime)
 
 	if (PlayerPawn->GetActorLocation().Z < -10000.0f)
 	{
+		ClearCropTarget(false);
 		StopAIMovement();
 		bAwarePlayer = false;
 		bCanSeePlayer = false;
@@ -246,6 +256,10 @@ void AZombieEnemy::Tick(float DeltaTime)
 			{
 				continue;
 			}
+			if (Plot == UnreachableCropTarget.Get() && Now < UnreachableCropUntil)
+			{
+				continue;
+			}
 			const float D = FVector::Dist2D(MyLoc, Plot->GetActorLocation());
 			if (D < 3600.0f && D < DistToCrop)
 			{
@@ -277,30 +291,23 @@ void AZombieEnemy::Tick(float DeltaTime)
 	const bool bTargetCropThisTick = (bIsNighttime && TargetCrop != nullptr)
 		&& (!bCanSeePlayer || (DistToPlayer > 450.0f && DistToCrop < DistToPlayer * 0.90f));
 
+	if (!bTargetCropThisTick)
+	{
+		if (bCropPursuitActive)
+		{
+			// Abandon the old crop path and make sure player investigation or roaming
+			// issues a replacement request this tick instead of following a stale path.
+			StopAIMovement();
+			bMemoryMoveIssued = false;
+			bHasRoamTarget = false;
+			NextRoamTime = Now;
+		}
+		ClearCropTarget(false);
+	}
+
 	if (bTargetCropThisTick)
 	{
-		const FVector CropLoc = TargetCrop->GetActorLocation();
-		const FVector ToCrop2D = (CropLoc - MyLoc).GetSafeNormal2D();
-		if (!ToCrop2D.IsNearlyZero())
-		{
-			const FRotator DesiredRot(0.0f, ToCrop2D.Rotation().Yaw, 0.0f);
-			SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredRot, DeltaTime, 12.0f));
-		}
-
-		StopAIMovement();
-		const float CropDist2D = FVector::Dist2D(MyLoc, CropLoc);
-		if (CropDist2D <= FMath::Max(MeleeRange, 155.0f))
-		{
-			if (Now - LastAttackTime >= AttackCooldown)
-			{
-				LastAttackTime = Now;
-				PerformMeleeAttack(TargetCrop);
-			}
-		}
-		else
-		{
-			AddMovementInput(ToCrop2D, 1.0f);
-		}
+		PursueCrop(TargetCrop, Now, DeltaTime);
 	}
 	else if (bCanSeePlayer)
 	{
@@ -474,6 +481,149 @@ void AZombieEnemy::StopAIMovement()
 	}
 }
 
+void AZombieEnemy::ClearCropTarget(bool bStopMovement)
+{
+	CurrentCropTarget.Reset();
+	bCropPursuitActive = false;
+	bCropMoveIssued = false;
+	CropMoveIssuedTime = 0.0f;
+	NextCropMoveRetryTime = 0.0f;
+	CropMoveFailureCount = 0;
+	CropPathStallCount = 0;
+	if (bStopMovement)
+	{
+		StopAIMovement();
+	}
+}
+
+void AZombieEnemy::PursueCrop(AFarmPlotBase* TargetCrop, float Now, float DeltaTime)
+{
+	if (!IsValid(TargetCrop))
+	{
+		ClearCropTarget(true);
+		return;
+	}
+
+	bCropPursuitActive = true;
+	const FVector MyLoc = GetActorLocation();
+	const FVector CropLoc = TargetCrop->GetActorLocation();
+	const FVector ToCrop2D = (CropLoc - MyLoc).GetSafeNormal2D();
+	if (!ToCrop2D.IsNearlyZero())
+	{
+		const FRotator DesiredRot(0.0f, ToCrop2D.Rotation().Yaw, 0.0f);
+		SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredRot, DeltaTime, 12.0f));
+	}
+
+	const float CropAttackRange = FMath::Max(MeleeRange, 155.0f);
+	const float CropDist2D = FVector::Dist2D(MyLoc, CropLoc);
+	if (CropDist2D <= CropAttackRange)
+	{
+		// Stay latched onto this crop while attacking. If it is destroyed, the next
+		// tick can detect that crop pursuit was active and cleanly resume roaming.
+		StopAIMovement();
+		bCropMoveIssued = false;
+		CropMoveIssuedTime = 0.0f;
+		NextCropMoveRetryTime = 0.0f;
+		CropMoveFailureCount = 0;
+		CropPathStallCount = 0;
+		if (Now - LastAttackTime >= AttackCooldown)
+		{
+			LastAttackTime = Now;
+			PerformMeleeAttack(TargetCrop);
+		}
+		return;
+	}
+
+	AAIController* AICon = Cast<AAIController>(GetController());
+	if (!AICon)
+	{
+		// Preserve movement for malformed/spawn-edge cases that somehow lack a controller.
+		AddMovementInput(ToCrop2D, 1.0f);
+		return;
+	}
+
+	if (CurrentCropTarget.Get() != TargetCrop)
+	{
+		CurrentCropTarget = TargetCrop;
+		bCropMoveIssued = false;
+		CropMoveIssuedTime = 0.0f;
+		NextCropMoveRetryTime = 0.0f;
+		CropMoveFailureCount = 0;
+		CropPathStallCount = 0;
+	}
+
+	if (bCropMoveIssued)
+	{
+		const EPathFollowingStatus::Type MoveStatus = AICon->GetMoveStatus();
+		const bool bStalled = Now - CropMoveIssuedTime > 2.0f && GetVelocity().Size2D() < 15.0f;
+		if (MoveStatus == EPathFollowingStatus::Moving && GetVelocity().Size2D() > 30.0f)
+		{
+			CropPathStallCount = 0;
+			return;
+		}
+		if (MoveStatus == EPathFollowingStatus::Idle || bStalled)
+		{
+			// The path ended or stalled before melee range. Repath after a short delay
+			// instead of steering directly into the fence/prop that blocked it.
+			++CropPathStallCount;
+			bCropMoveIssued = false;
+			if (CropPathStallCount >= 2)
+			{
+				UnreachableCropTarget = TargetCrop;
+				UnreachableCropUntil = Now + 8.0f;
+				bMemoryMoveIssued = false;
+				bHasRoamTarget = false;
+				NextRoamTime = Now;
+				ClearCropTarget(true);
+				return;
+			}
+			NextCropMoveRetryTime = Now + (bStalled ? 1.0f : 0.25f);
+			return;
+		}
+
+		// Waiting/Moving: let the existing path continue. Reissuing MoveToActor every
+		// tick would abort the path and prevent the zombie from ever rounding a corner.
+		return;
+	}
+
+	if (Now < NextCropMoveRetryTime)
+	{
+		return;
+	}
+
+	// Stop comfortably inside melee range. The plot's solid InteractionBox still
+	// stops the capsule at about 114 cm, while attack range is 155..165 cm.
+	const float AcceptanceRadius = FMath::Clamp(CropAttackRange - 50.0f, 80.0f, FMath::Max(80.0f, CropAttackRange - 20.0f));
+	const EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(
+		TargetCrop, AcceptanceRadius, true, true, true, nullptr, false);
+	bCropMoveIssued = true;
+	CropMoveIssuedTime = Now;
+
+	if (MoveResult == EPathFollowingRequestResult::Failed)
+	{
+		++CropMoveFailureCount;
+		CropPathStallCount = 0;
+		bCropMoveIssued = false;
+		NextCropMoveRetryTime = Now + 2.0f;
+
+		if (CropMoveFailureCount >= 2)
+		{
+			// Temporarily ignore a crop the navmesh cannot reach so the zombie picks
+			// another living crop or resumes roaming instead of parking at a fence.
+			UnreachableCropTarget = TargetCrop;
+			UnreachableCropUntil = Now + 8.0f;
+			bMemoryMoveIssued = false;
+			bHasRoamTarget = false;
+			NextRoamTime = Now;
+			ClearCropTarget(true);
+		}
+	}
+	else
+	{
+		CropMoveFailureCount = 0;
+	}
+}
+
 void AZombieEnemy::FaceVelocity(float DeltaTime)
 {
 	const FVector Vel2D = GetVelocity().GetSafeNormal2D();
@@ -587,9 +737,44 @@ void AZombieEnemy::Die()
 		}
 	}
 
+	if (bExplosionDeath && GetMesh())
+	{
+		// Let the shared NPC death path handle score, delegate, capsule/movement shutdown
+		// and ragdoll activation. This intentionally bypasses wound/dismember/death-anim logic.
+		DeferredDestructionTime = FMath::Max(DeferredDestructionTime, 8.0f);
+		CurrentLoopAnim = nullptr;
+		ClearCropTarget(false);
+
+		TArray<UBoxComponent*> HitBoxes;
+		GetComponents<UBoxComponent>(HitBoxes);
+		for (UBoxComponent* Box : HitBoxes)
+		{
+			if (Box)
+			{
+				Box->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			}
+		}
+
+		Super::Die();
+
+		if (USkeletalMeshComponent* ZombieMesh = GetMesh())
+		{
+			ZombieMesh->SetPhysicsLinearVelocity(PendingExplosionLaunchVelocity, false);
+			ZombieMesh->SetPhysicsAngularVelocityInDegrees(PendingExplosionSpinVelocity, false);
+
+			const FName ImpulseBone = ZombieMesh->DoesSocketExist(FName("Zombie_Spine")) ? FName("Zombie_Spine") : NAME_None;
+			const FVector ImpulseLocation = ImpulseBone != NAME_None
+				? ZombieMesh->GetSocketLocation(ImpulseBone)
+				: GetActorLocation() + FVector(0.0f, 0.0f, 60.0f);
+			ZombieMesh->AddImpulseAtLocation(PendingExplosionLaunchVelocity * 24.0f, ImpulseLocation, ImpulseBone);
+		}
+		return;
+	}
+
 	if (GetMesh() && (bIsCrawling || DeathAnim))
 	{
 		bIsDead = true;
+		ClearCropTarget(false);
 		StopAIMovement();
 		Tags.Add(DeathTag);
 		OnPawnDeath.Broadcast();
@@ -657,6 +842,20 @@ void AZombieEnemy::Die()
 	}
 
 	Super::Die();
+}
+
+void AZombieEnemy::KillByExplosion(const FVector& LaunchVelocity, const FVector& SpinVelocity)
+{
+	if (bIsDead)
+	{
+		return;
+	}
+
+	bExplosionDeath = true;
+	PendingExplosionLaunchVelocity = LaunchVelocity;
+	PendingExplosionSpinVelocity = SpinVelocity;
+	CurrentHP = 0.0f;
+	Die();
 }
 
 void AZombieEnemy::ApplyBulletWound(const FVector& WorldHitLocation, const FVector& ShotDirection)
@@ -913,6 +1112,20 @@ void AZombieEnemy::EnterCrawlState()
 	bIsCrawling = true;
 	CrawlBlendAlpha = 0.0f;
 	CrawlRockTime = 0.0f;
+	// Capsule height changed. Rebuild whichever navigation path was active without
+	// leaving player-investigation or roam flags pointing at an aborted move.
+	const bool bWasPursuingCrop = bCropPursuitActive;
+	if (bWasPursuingCrop)
+	{
+		StopAIMovement();
+	}
+	ClearCropTarget(false);
+	bMemoryMoveIssued = false;
+	bHasRoamTarget = false;
+	if (UWorld* World = GetWorld())
+	{
+		NextRoamTime = World->GetTimeSeconds();
+	}
 
 	if (GetMesh())
 	{

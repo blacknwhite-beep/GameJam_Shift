@@ -2,6 +2,7 @@
 
 
 #include "ShooterWeapon.h"
+#include "ShooterCharacter.h"
 #include "DimensionShiftSubsystem.h"
 #include "Inventory/TarkovInventoryComponent.h"
 #include "Engine/GameInstance.h"
@@ -12,6 +13,7 @@
 #include "ShooterProjectile.h"
 #include "ShooterWeaponHolder.h"
 #include "Components/SceneComponent.h"
+#include "Camera/CameraComponent.h"
 #include "TimerManager.h"
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -389,11 +391,17 @@ void AShooterWeapon::ActivateWeapon()
 	if (MuzzleFlashCrossMesh) { MuzzleFlashCrossMesh->SetVisibility(false, false); }
 	if (MuzzleFlashLight)     { MuzzleFlashLight->SetVisibility(false); }
 
+	// Respect the Farmer's current first/third-person view when a weapon is
+	// activated after a wheel swap or a return from the Farm dimension.
+	const AShooterCharacter* OwnerCharacter = Cast<AShooterCharacter>(GetOwner());
+	const UCameraComponent* OwnerCamera = OwnerCharacter ? OwnerCharacter->GetFirstPersonCameraComponent() : nullptr;
+	const bool bThirdPerson = OwnerCamera && OwnerCamera->IsUsingAbsoluteLocation();
+
 	if (FirstPersonGunMesh && FirstPersonGunMesh->GetStaticMesh())
 	{
-		FirstPersonGunMesh->SetVisibility(true, true);
-		if (FarmerRightHand) { FarmerRightHand->SetVisibility(true, true); }
-		if (FarmerLeftHand)  { FarmerLeftHand->SetVisibility(true, true); }
+		FirstPersonGunMesh->SetVisibility(!bThirdPerson, true);
+		if (FarmerRightHand) { FarmerRightHand->SetVisibility(!bThirdPerson, true); }
+		if (FarmerLeftHand)  { FarmerLeftHand->SetVisibility(!bThirdPerson, true); }
 		if (FirstPersonMesh)
 		{
 			FirstPersonMesh->SetVisibility(false, false);
@@ -403,6 +411,12 @@ void AShooterWeapon::ActivateWeapon()
 	if (ThirdPersonGunMesh && ThirdPersonGunMesh->GetStaticMesh())
 	{
 		ThirdPersonGunMesh->SetVisibility(true, true);
+		ThirdPersonGunMesh->SetFirstPersonPrimitiveType(
+			bThirdPerson
+				? EFirstPersonPrimitiveType::None
+				: EFirstPersonPrimitiveType::WorldSpaceRepresentation);
+		ThirdPersonGunMesh->SetOwnerNoSee(!bThirdPerson);
+		ThirdPersonGunMesh->MarkRenderStateDirty();
 		if (ThirdPersonMesh)
 		{
 			ThirdPersonMesh->SetVisibility(false, false);
@@ -745,6 +759,8 @@ void AShooterWeapon::FireCooldownExpired()
 
 void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 {
+	const FVector MuzzleLoc = GetMuzzleWorldLocation();
+
 	// get the projectile transform
 	FTransform ProjectileTransform = CalculateProjectileSpawnTransform(TargetLocation);
 	
@@ -756,6 +772,10 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	SpawnParams.Instigator = PawnOwner;
 
 	AShooterProjectile* Projectile = GetWorld()->SpawnActor<AShooterProjectile>(ProjectileClass, ProjectileTransform, SpawnParams);
+	if (Projectile)
+	{
+		Projectile->SetTracerStartLocation(MuzzleLoc);
+	}
 
 	// Play a crisp, per-shot gunshot transient synced 1:1 with every single bullet leaving the barrel
 	if (FireSound)
@@ -764,7 +784,7 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 		UGameplayStatics::PlaySoundAtLocation(
 			this,
 			FireSound,
-			FirstPersonMesh ? FirstPersonMesh->GetSocketLocation(MuzzleSocketName) : GetActorLocation(),
+			MuzzleLoc,
 			1.0f,
 			PitchJitter
 		);
@@ -841,14 +861,46 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	WeaponOwner->UpdateWeaponHUD(CurrentBullets, MagazineSize);
 }
 
-FTransform AShooterWeapon::CalculateProjectileSpawnTransform(const FVector& TargetLocation) const
+FVector AShooterWeapon::GetMuzzleWorldLocation() const
 {
-	// find the muzzle location
-	FVector MuzzleLoc = FirstPersonMesh->GetSocketLocation(MuzzleSocketName);
+	const AShooterCharacter* OwnerCharacter = Cast<AShooterCharacter>(GetOwner());
+	const UCameraComponent* OwnerCamera = OwnerCharacter ? OwnerCharacter->GetFirstPersonCameraComponent() : nullptr;
+	const bool bThirdPerson = OwnerCamera && OwnerCamera->IsUsingAbsoluteLocation();
+
+	// In third person, use the gun attached to the Farmer's hand rather than the
+	// camera-attached first-person representation.
+	if (bThirdPerson && ThirdPersonGunMesh && ThirdPersonGunMesh->GetStaticMesh())
+	{
+		if (bHasGunMuzzleLocalPoint)
+		{
+			return ThirdPersonGunMesh->GetComponentTransform().TransformPosition(GunMuzzleLocalPoint);
+		}
+		if (ThirdPersonMesh)
+		{
+			return ThirdPersonMesh->GetComponentTransform().TransformPosition(MuzzleTipRelativeLocation);
+		}
+	}
+
 	if (FirstPersonGunMesh && FirstPersonGunMesh->GetStaticMesh())
 	{
-		MuzzleLoc = FirstPersonGunMesh->GetComponentLocation() + FirstPersonMesh->GetRightVector() * 18.0f + FirstPersonMesh->GetUpVector() * 4.0f;
+		if (bHasGunMuzzleLocalPoint)
+		{
+			// The component transform includes recoil, reload, equip and idle sway.
+			return FirstPersonGunMesh->GetComponentTransform().TransformPosition(GunMuzzleLocalPoint);
+		}
+		if (FirstPersonMesh)
+		{
+			return FirstPersonMesh->GetComponentTransform().TransformPosition(MuzzleTipRelativeLocation + CurrentRecoilOffset);
+		}
 	}
+
+	return FirstPersonMesh ? FirstPersonMesh->GetSocketLocation(MuzzleSocketName) : GetActorLocation();
+}
+
+FTransform AShooterWeapon::CalculateProjectileSpawnTransform(const FVector& TargetLocation) const
+{
+	// Use the same barrel location for the projectile and its visual/sound origin.
+	const FVector MuzzleLoc = GetMuzzleWorldLocation();
 
 	// calculate the spawn location ahead of the muzzle
 	const FVector SpawnLoc = MuzzleLoc + ((TargetLocation - MuzzleLoc).GetSafeNormal() * MuzzleOffset);
@@ -1081,6 +1133,15 @@ void AShooterWeapon::ConfigureCustomGunPackArchetype(
 		const float HalfLenY = GunBounds.BoxExtent.Y * InUniformScale;
 		const float BarrelZ = (GunBounds.BoxExtent.Z * 0.42f) * InUniformScale;
 		MuzzleTipRelativeLocation = InMeshOffset + FVector(0.0f, HalfLenY + 2.5f, BarrelZ);
+
+		// Store the muzzle in the imported mesh's own local space. This lets the
+		// active gun component's transform handle yaw-180 layouts, scale, recoil,
+		// reload motion and idle sway without a fixed camera-space approximation.
+		const FVector LocalBarrelForward = FQuat(InMeshRotation).RotateVector(FVector(0.0f, 1.0f, 0.0f));
+		const float MuzzleY = LocalBarrelForward.Y >= 0.0f ? GunBounds.BoxExtent.Y : -GunBounds.BoxExtent.Y;
+		GunMuzzleLocalPoint = GunBounds.Origin + FVector(0.0f, MuzzleY, GunBounds.BoxExtent.Z * 0.42f);
+		GunMuzzleLocalPoint += LocalBarrelForward.GetSafeNormal() * (2.5f / FMath::Max(InUniformScale, 0.001f));
+		bHasGunMuzzleLocalPoint = true;
 
 		if (FirstPersonGunMesh)
 		{

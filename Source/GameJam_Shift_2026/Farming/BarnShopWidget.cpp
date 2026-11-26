@@ -5,6 +5,7 @@
 #include "DimensionShiftSubsystem.h"
 #include "Inventory/TarkovInventoryComponent.h"
 #include "ShooterCharacter.h"
+#include "Traps/LandmineActor.h"
 #include "Weapons/ShooterWeapon.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
@@ -152,7 +153,7 @@ void UBarnShopWidget::NativeOnInitialized()
 		GSlot->SetVerticalAlignment(VAlign_Center);
 	}
 
-	// 2. Navigation Tab Bar: [SEEDS & LAND] vs [GUNS ARSENAL]
+	// 2. Navigation Tab Bar: [SEEDS & LAND] [GUNS ARSENAL] [TRAPS]
 	UHorizontalBox* TabBar = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ShopTabBar"));
 	if (UVerticalBoxSlot* TBSlot = VBox->AddChildToVerticalBox(TabBar))
 	{
@@ -169,7 +170,7 @@ void UBarnShopWidget::NativeOnInitialized()
 	}
 
 	UTextBlock* TabSeedsLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TabSeedsLabel"));
-	TabSeedsLabel->SetText(FText::FromString(TEXT("SEEDS & FARM PLOTS")));
+	TabSeedsLabel->SetText(FText::FromString(TEXT("SEEDS & LAND")));
 	TabSeedsLabel->SetJustification(ETextJustify::Center);
 	TabSeedsLabel->SetColorAndOpacity(FSlateColor(FLinearColor::White));
 	{
@@ -189,7 +190,7 @@ void UBarnShopWidget::NativeOnInitialized()
 	}
 
 	UTextBlock* TabGunsLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TabGunsLabel"));
-	TabGunsLabel->SetText(FText::FromString(TEXT("GUNS ARSENAL (7 WEAPONS)")));
+	TabGunsLabel->SetText(FText::FromString(TEXT("GUNS ARSENAL")));
 	TabGunsLabel->SetJustification(ETextJustify::Center);
 	TabGunsLabel->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.90f, 0.45f, 1.0f)));
 	{
@@ -198,6 +199,26 @@ void UBarnShopWidget::NativeOnInitialized()
 		TabGunsLabel->SetFont(F);
 	}
 	TabGunsButton->SetContent(TabGunsLabel);
+
+	TabTrapsButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("TabTrapsButton"));
+	TabTrapsButton->SetBackgroundColor(FLinearColor(0.12f, 0.15f, 0.20f, 1.0f));
+	TabTrapsButton->OnClicked.AddUniqueDynamic(this, &UBarnShopWidget::OnTabTrapsClicked);
+	if (UHorizontalBoxSlot* Tab3Slot = TabBar->AddChildToHorizontalBox(TabTrapsButton))
+	{
+		Tab3Slot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+		Tab3Slot->SetPadding(FMargin(6.0f, 0.0f, 0.0f, 0.0f));
+	}
+
+	UTextBlock* TabTrapsLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TabTrapsLabel"));
+	TabTrapsLabel->SetText(FText::FromString(TEXT("TRAPS")));
+	TabTrapsLabel->SetJustification(ETextJustify::Center);
+	TabTrapsLabel->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.62f, 0.42f, 1.0f)));
+	{
+		FSlateFontInfo F = TabTrapsLabel->GetFont();
+		F.Size = 12;
+		TabTrapsLabel->SetFont(F);
+	}
+	TabTrapsButton->SetContent(TabTrapsLabel);
 
 	// 3A. SEEDS & LAND Container
 	SeedsTabBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SeedsTabBox"));
@@ -270,9 +291,34 @@ void UBarnShopWidget::NativeOnInitialized()
 	if (GunBuyButtons.IsValidIndex(5) && GunBuyButtons[5]) { GunBuyButtons[5]->OnClicked.AddUniqueDynamic(this, &UBarnShopWidget::OnBuyGunSlot5); }
 	if (GunBuyButtons.IsValidIndex(6) && GunBuyButtons[6]) { GunBuyButtons[6]->OnClicked.AddUniqueDynamic(this, &UBarnShopWidget::OnBuyGunSlot6); }
 
+	// 3C. TRAPS Container
+	TrapsTabBox = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("TrapsTabBox"));
+	TrapsTabBox->SetVisibility(ESlateVisibility::Collapsed);
+	if (UVerticalBoxSlot* TrapsSlot = VBox->AddChildToVerticalBox(TrapsTabBox))
+	{
+		TrapsSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+	}
+
+	UButton* BtnLandmine = nullptr;
+	UTextBlock* LandmineLabel = nullptr;
+	AddShopRow(
+		WidgetTree,
+		TrapsTabBox,
+		TEXT("Landmine"),
+		TEXT("Proximity Landmine"),
+		TEXT("Place in Combat. Kills nearby zombies intact and launches their ragdolls."),
+		500,
+		BtnLandmine,
+		LandmineLabel
+	);
+	if (BtnLandmine)
+	{
+		BtnLandmine->OnClicked.AddUniqueDynamic(this, &UBarnShopWidget::OnBuyLandmine);
+	}
+
 	// 4. Footer Status Text & Close Button
 	StatusText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ShopStatusText"));
-	StatusText->SetText(FText::FromString(TEXT("Switch between SEEDS & FARM PLOTS and GUNS ARSENAL tabs above.")));
+	StatusText->SetText(FText::FromString(TEXT("Switch between SEEDS & LAND, GUNS ARSENAL, and TRAPS tabs above.")));
 	StatusText->SetColorAndOpacity(FSlateColor(FLinearColor(0.75f, 0.88f, 0.80f, 1.0f)));
 	FSlateFontInfo StatFont = StatusText->GetFont();
 	StatFont.Size = 10;
@@ -313,16 +359,28 @@ void UBarnShopWidget::OnTabGunsClicked()
 	SetActiveTab(1);
 }
 
+void UBarnShopWidget::OnTabTrapsClicked()
+{
+	SetActiveTab(2);
+}
+
 void UBarnShopWidget::SetActiveTab(int32 TabIndex)
 {
 	const bool bSeedsActive = (TabIndex == 0);
+	const bool bGunsActive = (TabIndex == 1);
+	const bool bTrapsActive = (TabIndex == 2);
+
 	if (SeedsTabBox)
 	{
 		SeedsTabBox->SetVisibility(bSeedsActive ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
 	if (GunsTabBox)
 	{
-		GunsTabBox->SetVisibility(bSeedsActive ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+		GunsTabBox->SetVisibility(bGunsActive ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
+	if (TrapsTabBox)
+	{
+		TrapsTabBox->SetVisibility(bTrapsActive ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
 	}
 	if (TabSeedsButton)
 	{
@@ -330,7 +388,11 @@ void UBarnShopWidget::SetActiveTab(int32 TabIndex)
 	}
 	if (TabGunsButton)
 	{
-		TabGunsButton->SetBackgroundColor(!bSeedsActive ? FLinearColor(0.20f, 0.48f, 0.68f, 1.0f) : FLinearColor(0.12f, 0.15f, 0.20f, 1.0f));
+		TabGunsButton->SetBackgroundColor(bGunsActive ? FLinearColor(0.20f, 0.48f, 0.68f, 1.0f) : FLinearColor(0.12f, 0.15f, 0.20f, 1.0f));
+	}
+	if (TabTrapsButton)
+	{
+		TabTrapsButton->SetBackgroundColor(bTrapsActive ? FLinearColor(0.62f, 0.28f, 0.16f, 1.0f) : FLinearColor(0.12f, 0.15f, 0.20f, 1.0f));
 	}
 
 	RefreshGoldText();
@@ -340,9 +402,13 @@ void UBarnShopWidget::SetActiveTab(int32 TabIndex)
 	{
 		SetStatus(TEXT("Purchase seeds to add them to your [T] pouch rotation."), FLinearColor(0.75f, 0.88f, 0.80f, 1.0f));
 	}
-	else
+	else if (bGunsActive)
 	{
 		SetStatus(TEXT("Unlock weapons to equip them in the [Hold TAB] Radial Weapon Wheel in Combat!"), FLinearColor(0.75f, 0.88f, 1.0f, 1.0f));
+	}
+	else
+	{
+		SetStatus(TEXT("Buy a Landmine, then click it in Inventory while in Combat to place it."), FLinearColor(1.0f, 0.72f, 0.52f, 1.0f));
 	}
 }
 
@@ -557,6 +623,60 @@ void UBarnShopWidget::OnBuyFarmPlot()
 
 	RefreshGoldText();
 	SetStatus(TEXT("Purchased Farm Plot! Open Inventory [I/Tab] and click it to place!"), FLinearColor(0.35f, 1.0f, 0.45f, 1.0f));
+}
+
+void UBarnShopWidget::OnBuyLandmine()
+{
+	const int32 Price = 500;
+	UWorld* World = GetWorld();
+	UDimensionShiftSubsystem* Sub = (World && World->GetGameInstance())
+		? World->GetGameInstance()->GetSubsystem<UDimensionShiftSubsystem>()
+		: nullptr;
+	APawn* Pawn = GetOwningPlayerPawn();
+	UTarkovInventoryComponent* Inv = Pawn ? Pawn->FindComponentByClass<UTarkovInventoryComponent>() : nullptr;
+
+	if (!Sub || !Inv)
+	{
+		return;
+	}
+
+	int32 TargetX = -1;
+	int32 TargetY = -1;
+	if (!Inv->FindFreeSpace(1, 1, TargetX, TargetY))
+	{
+		SetStatus(TEXT("Tarkov Backpack is full! Make room before buying a Landmine."), FLinearColor(1.0f, 0.35f, 0.30f, 1.0f));
+		return;
+	}
+
+	const bool bDeveloperMode = Sub->IsDeveloperModeEnabled();
+	if (!Sub->SpendGold(Price))
+	{
+		SetStatus(TEXT("Not enough Gold! A Landmine costs 500 Gold."), FLinearColor(1.0f, 0.35f, 0.30f, 1.0f));
+		return;
+	}
+
+	FInventoryGridItem MineItem;
+	MineItem.ItemId = FGuid::NewGuid();
+	MineItem.ItemName = TEXT("Landmine");
+	MineItem.Width = 1;
+	MineItem.Height = 1;
+	MineItem.AmmoCount = 1;
+	MineItem.GridX = TargetX;
+	MineItem.GridY = TargetY;
+	MineItem.PlaceableClass = ALandmineActor::StaticClass();
+
+	if (!Inv->AddItemAt(MineItem, TargetX, TargetY))
+	{
+		if (!bDeveloperMode)
+		{
+			Sub->AddGold(Price);
+		}
+		SetStatus(TEXT("Could not add the Landmine to your Backpack. Gold was not charged."), FLinearColor(1.0f, 0.35f, 0.30f, 1.0f));
+		return;
+	}
+
+	RefreshGoldText();
+	SetStatus(TEXT("Purchased Landmine! Shift to Combat, open Inventory [I/Tab], and click it to place."), FLinearColor(0.35f, 1.0f, 0.45f, 1.0f));
 }
 
 void UBarnShopWidget::OnCloseClicked()

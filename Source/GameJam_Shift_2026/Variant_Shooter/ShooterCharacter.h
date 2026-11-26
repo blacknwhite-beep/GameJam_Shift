@@ -16,6 +16,7 @@ class UInputMappingContext;
 class UInputComponent;
 class UPawnNoiseEmitterComponent;
 class UFarmingComponent;
+class UDeployablePlacementComponent;
 class UCameraShakeBase;
 class USoundBase;
 class UNiagaraSystem;
@@ -100,6 +101,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Farming", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UFarmingComponent> FarmingComponent;
 
+	/** Generic backpack deployable placement (Landmine and future traps). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Traps", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UDeployablePlacementComponent> DeployablePlacement = nullptr;
+
 	/** Name of the first person mesh weapon socket */
 	UPROPERTY(EditAnywhere, Category ="Weapons")
 	FName FirstPersonWeaponSocket = FName("HandGrip_R");
@@ -141,6 +146,9 @@ protected:
 
 	/** True while the [TAB] radial weapon wheel is currently open */
 	bool bIsWeaponWheelOpen = false;
+
+	/** Suppresses the duplicate LMB callback caused by Enhanced Input + legacy key binding. */
+	double LastDeployablePlacementClickTime = -1000.0;
 
 	/** True while the player is lying in the farmhouse bed */
 	bool bIsSleepingInBed = false;

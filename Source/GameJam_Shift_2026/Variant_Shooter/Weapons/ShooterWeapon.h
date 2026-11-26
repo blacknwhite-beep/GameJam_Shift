@@ -99,6 +99,10 @@ protected:
 	/** Local barrel tip offset along the gun's forward (+Y) and up (+Z) axis in FirstPersonMesh space */
 	FVector MuzzleTipRelativeLocation = FVector(0.0f, 32.0f, 6.5f);
 
+	/** Exact barrel-tip point in the imported gun mesh's local space (includes yaw-180 gun layouts). */
+	FVector GunMuzzleLocalPoint = FVector::ZeroVector;
+	bool bHasGunMuzzleLocalPoint = false;
+
 	/** Emissive dynamic material instance for the muzzle flare */
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> MuzzleFlashMID;
@@ -302,6 +306,9 @@ protected:
 
 	/** Calculates the spawn transform for projectiles shot by this weapon */
 	FTransform CalculateProjectileSpawnTransform(const FVector& TargetLocation) const;
+
+	/** Returns the world-space barrel location shared by projectiles, sound and tracers. */
+	FVector GetMuzzleWorldLocation() const;
 
 public:
 

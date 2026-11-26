@@ -36,6 +36,8 @@ AFarmPlotBase::AFarmPlotBase()
 	SoilMesh->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
 	SoilMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	SoilMesh->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+	// The low dirt mound is walkable; do not let it carve holes/barriers into the navmesh.
+	SoilMesh->SetCanEverAffectNavigation(false);
 
 	CropMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CropMesh"));
 	CropMesh->SetupAttachment(RootComponent);
@@ -59,6 +61,9 @@ AFarmPlotBase::AFarmPlotBase()
 	InteractionBox->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
 	InteractionBox->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	InteractionBox->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Block);
+	// Keep the box solid for player interaction traces, but let zombies path through
+	// the crop field. Its collision still stops them at roughly 114 cm, inside melee range.
+	InteractionBox->SetCanEverAffectNavigation(false);
 
 	// Floating 3D nighttime health bar (hidden by default; shown ONLY in Combat world during nighttime when planted)
 	HealthBarRoot = CreateDefaultSubobject<USceneComponent>(TEXT("HealthBarRoot"));

@@ -11,6 +11,7 @@ class USoundBase;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 class UZombieAnimInstance;
+class AFarmPlotBase;
 
 /**
  * Melee-only Zombie enemy inheriting from AShooterNPC so it integrates with
@@ -116,6 +117,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Zombie|Combat")
 	void ApplyBulletWound(const FVector& WorldHitLocation, const FVector& ShotDirection);
 
+	/**
+	 * Explosion-only death: no bullet wound, no dismemberment, no gibs.
+	 * Activates full ragdoll physics and launches the intact body with the supplied velocity.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Zombie|Combat")
+	void KillByExplosion(const FVector& LaunchVelocity, const FVector& SpinVelocity);
+
 	/** True once either leg has been blown off and the zombie is crawling on the ground */
 	UFUNCTION(BlueprintPure, Category = "Zombie|Combat")
 	bool IsCrawling() const { return bIsCrawling; }
@@ -143,8 +151,14 @@ protected:
 	/** Attaches a gory flesh-and-bone stump cap to the parent joint socket */
 	void AttachStumpCap(FName SocketBone, bool bIsHead);
 
-	/** Executes a melee hit on the target player */
+	/** Executes a melee hit on the target player or crop */
 	void PerformMeleeAttack(AActor* TargetActor);
+
+	/** Navmesh-pathfinds around fences/props to a living crop, then attacks it in melee range. */
+	void PursueCrop(AFarmPlotBase* TargetCrop, float Now, float DeltaTime);
+
+	/** Clears the active crop move without affecting player-chase or roam state. */
+	void ClearCropTarget(bool bStopMovement);
 
 	/** Switches single-node animation cleanly and scales play rate to actual ground speed */
 	void UpdateLocomotionAnimation();
@@ -176,6 +190,17 @@ private:
 	FVector LastKnownPlayerLocation = FVector::ZeroVector;
 	FVector RoamTarget = FVector::ZeroVector;
 
+	/** Crop pursuit uses real navmesh paths so fences are routed around via gates. */
+	TWeakObjectPtr<AFarmPlotBase> CurrentCropTarget;
+	TWeakObjectPtr<AFarmPlotBase> UnreachableCropTarget;
+	float UnreachableCropUntil = 0.0f;
+	bool bCropPursuitActive = false;
+	bool bCropMoveIssued = false;
+	float CropMoveIssuedTime = 0.0f;
+	float NextCropMoveRetryTime = 0.0f;
+	int32 CropMoveFailureCount = 0;
+	int32 CropPathStallCount = 0;
+
 	/** Dynamic material instances for each skeletal mesh slot so per-zombie 3D wound spheres are rendered */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UMaterialInstanceDynamic>> ZombieWoundMIDs;
@@ -193,4 +218,9 @@ private:
 	float CrawlBlendAlpha = 0.0f;
 	float CrawlRockTime = 0.0f;
 	float DefaultMeshRelativeZ = -90.0f;
+
+	/** Explosion deaths stay in full ragdoll physics instead of animation/ground settling. */
+	bool bExplosionDeath = false;
+	FVector PendingExplosionLaunchVelocity = FVector::ZeroVector;
+	FVector PendingExplosionSpinVelocity = FVector::ZeroVector;
 };

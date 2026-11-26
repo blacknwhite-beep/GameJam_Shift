@@ -68,6 +68,10 @@ protected:
 	/** If true, this projectile has already hit another surface */
 	bool bHit = false;
 
+	/** Exact barrel location captured when this round was fired, used by the visual tracer. */
+	FVector TracerStartLocation = FVector::ZeroVector;
+	bool bHasTracerStartLocation = false;
+
 	/** How long to wait after a hit before destroying this projectile */
 	UPROPERTY(EditAnywhere, Category="Projectile|Destruction", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
 	float DeferredDestructionTime = 5.0f;
@@ -79,6 +83,9 @@ public:
 
 	/** Constructor */
 	AShooterProjectile();
+
+	/** Sets the barrel location used as the visual tracer's start point. */
+	void SetTracerStartLocation(const FVector& MuzzleLocation);
 
 protected:
 	

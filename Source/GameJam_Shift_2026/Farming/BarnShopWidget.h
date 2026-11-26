@@ -11,11 +11,11 @@ class UButton;
 class UVerticalBox;
 
 /**
- * Barn Seed, Land & Guns Shop UI opened when interacting with the Barn in Lvl_Farm.
- * Features two tabs:
- *  - Tab 1 (SEEDS & LAND): Sells the 4 crop seed types and placeable Farm Plots.
- *  - Tab 2 (GUNS ARSENAL): Sells the 6 purchasable Gun Pack firearms at increasing prices
- *    starting at 1000 Gold for the M1911 Tactical (M1911 Classic is owned at the start).
+ * Barn Seed, Land, Guns & Traps Shop UI opened when interacting with the Barn in Lvl_Farm.
+ * Features three tabs:
+ *  - Tab 1 (SEEDS & FARM PLOTS): Sells the 4 crop seed types and placeable Farm Plots.
+ *  - Tab 2 (GUNS ARSENAL): Sells the 6 purchasable Gun Pack firearms at increasing prices.
+ *  - Tab 3 (TRAPS): Sells placeable Landmines for Combat-world zombie defense.
  */
 UCLASS()
 class GAMEJAM_SHIFT_2026_API UBarnShopWidget : public UUserWidget
@@ -30,6 +30,7 @@ protected:
 	// Tab switching
 	UFUNCTION() void OnTabSeedsClicked();
 	UFUNCTION() void OnTabGunsClicked();
+	UFUNCTION() void OnTabTrapsClicked();
 	void SetActiveTab(int32 TabIndex);
 
 	// Seeds & Land tab actions
@@ -38,6 +39,9 @@ protected:
 	UFUNCTION() void OnBuyPistolSeeds();
 	UFUNCTION() void OnBuyMedkitSeeds();
 	UFUNCTION() void OnBuyFarmPlot();
+
+	// Traps tab actions
+	UFUNCTION() void OnBuyLandmine();
 
 	// Guns Arsenal tab actions (Slots 1..6; Slot 0 is M1911 Classic, owned at start)
 	UFUNCTION() void OnBuyGunSlot1();
@@ -68,10 +72,16 @@ protected:
 	TObjectPtr<UButton> TabGunsButton;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UButton> TabTrapsButton;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UVerticalBox> SeedsTabBox;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UVerticalBox> GunsTabBox;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UVerticalBox> TrapsTabBox;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UButton>> GunBuyButtons;

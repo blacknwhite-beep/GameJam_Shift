@@ -4,6 +4,7 @@
 #include "TarkovInventoryWidgets.h"
 #include "Inventory/TarkovInventoryComponent.h"
 #include "Farming/FarmingComponent.h"
+#include "Traps/DeployablePlacementComponent.h"
 #include "Weapons/ShooterWeapon.h"
 #include "GameFramework/Pawn.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
@@ -66,6 +67,37 @@ FReply UTarkovInventoryItemWidget::NativeOnMouseButtonDown(const FGeometry& InGe
 				else if (GEngine)
 				{
 					GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Orange, TEXT("[FARM] Shift to the Farm world [Left Shift] to place your Farm Plot!"));
+				}
+			}
+		}
+
+		// Generic data-driven deployables (Landmine, future traps). Resolve by GUID
+		// instead of display text so renaming an item cannot break placement.
+		if (APawn* Pawn = GetOwningPlayerPawn())
+		{
+			if (UTarkovInventoryComponent* Comp = Pawn->FindComponentByClass<UTarkovInventoryComponent>())
+			{
+				const FInventoryGridItem* ClickedItem = Comp->GetBackpackItems().FindByPredicate(
+					[this](const FInventoryGridItem& Item) { return Item.ItemId == ItemId; });
+				if (ClickedItem && ClickedItem->PlaceableClass)
+				{
+					if (Pawn->GetActorLocation().Z < -10000.0f)
+					{
+						if (GEngine)
+						{
+							GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Orange,
+								TEXT("[TRAP] Shift to the Combat world [Left Shift] before placing a Landmine!"));
+						}
+					}
+					else if (UDeployablePlacementComponent* Placement = Pawn->FindComponentByClass<UDeployablePlacementComponent>())
+					{
+						if (Comp->IsInventoryOpen())
+						{
+							Comp->ToggleInventory();
+						}
+						Placement->StartPlacement(ItemId, ClickedItem->PlaceableClass);
+						return FReply::Handled();
+					}
 				}
 			}
 		}

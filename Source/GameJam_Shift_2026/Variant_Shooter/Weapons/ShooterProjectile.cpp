@@ -2,6 +2,7 @@
 
 
 #include "ShooterProjectile.h"
+#include "BulletTracer.h"
 #include "Variant_Shooter/AI/ZombieEnemy.h"
 #include "Components/SphereComponent.h"
 #include "Components/MeshComponent.h"
@@ -44,6 +45,11 @@ AShooterProjectile::AShooterProjectile()
 void AShooterProjectile::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Keep a reliable fallback start point; the firing weapon immediately replaces
+	// this with the exact barrel location before the round can collide.
+	TracerStartLocation = GetActorLocation();
+	bHasTracerStartLocation = true;
 	
 	// ignore the pawn that shot this projectile
 	CollisionComponent->IgnoreActorWhenMoving(GetInstigator(), true);
@@ -110,6 +116,14 @@ void AShooterProjectile::NotifyHit(class UPrimitiveComponent* MyComp, AActor* Ot
 
 		// single hit projectile. Process the collided actor
 		ProcessHit(Other, OtherComp, Hit.ImpactPoint, -Hit.ImpactNormal);
+
+		// The visual trail always terminates on the projectile's real collision point,
+		// including aim spread, instead of the camera's original aim trace.
+		if (!bExplodeOnHit)
+		{
+			const FVector TrailStart = bHasTracerStartLocation ? TracerStartLocation : GetActorLocation();
+			ABulletTracer::SpawnTracer(GetWorld(), TrailStart, HitLocation, Hit.ImpactNormal);
+		}
 
 	}
 
@@ -197,6 +211,12 @@ void AShooterProjectile::ProcessHit(AActor* HitActor, UPrimitiveComponent* HitCo
 		// give some physics impulse to the object
 		HitComp->AddImpulseAtLocation(HitDirection * PhysicsForce, HitLocation);
 	}
+}
+
+void AShooterProjectile::SetTracerStartLocation(const FVector& MuzzleLocation)
+{
+	TracerStartLocation = MuzzleLocation;
+	bHasTracerStartLocation = true;
 }
 
 void AShooterProjectile::OnDeferredDestruction()

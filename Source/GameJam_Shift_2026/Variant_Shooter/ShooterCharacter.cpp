@@ -8,6 +8,7 @@
 #include "DimensionShiftCameraShake.h"
 #include "FarmingComponent.h"
 #include "Farming/BarnShopActor.h"
+#include "Traps/DeployablePlacementComponent.h"
 #include "Farming/FarmBedActor.h"
 #include "Farming/FarmPlotBase.h"
 #include "Components/StaticMeshComponent.h"
@@ -324,6 +325,9 @@ AShooterCharacter::AShooterCharacter()
 
 	// create the Farming component
 	FarmingComponent = CreateDefaultSubobject<UFarmingComponent>(TEXT("FarmingComponent"));
+
+	// Generic trap/deployable placement component
+	DeployablePlacement = CreateDefaultSubobject<UDeployablePlacementComponent>(TEXT("DeployablePlacement"));
 
 	// Watering-can prop: created hidden, attached/repositioned per view & tool by UpdateWateringCanVisibility().
 	WateringCanMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WateringCanMesh"));
@@ -728,6 +732,21 @@ void AShooterCharacter::DoStartFiring()
 				return;
 			}
 		}
+	}
+
+	// Trap placement consumes Combat left-click before weapon fire or farming use.
+	// FireAction and the legacy LMB fallback can both invoke this function for one
+	// physical click, so swallow the immediate duplicate after confirming.
+	const double PlacementClickNow = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	if (DeployablePlacement
+		&& (DeployablePlacement->IsPlacing() || PlacementClickNow - LastDeployablePlacementClickTime < 0.05))
+	{
+		if (DeployablePlacement->IsPlacing())
+		{
+			LastDeployablePlacementClickTime = PlacementClickNow;
+			DeployablePlacement->ConfirmPlacement();
+		}
+		return;
 	}
 
 	// In Farming dimension, route Left Click to plot placement, Barn Shop, or FarmingComponent!
@@ -1294,6 +1313,10 @@ void AShooterCharacter::CancelPlotPlacementInput()
 	{
 		FarmingComponent->CancelPlotPlacement();
 	}
+	if (DeployablePlacement && DeployablePlacement->IsPlacing())
+	{
+		DeployablePlacement->CancelPlacement();
+	}
 }
 
 void AShooterCharacter::DevAdvanceTimeInput()
@@ -1319,10 +1342,14 @@ void AShooterCharacter::HandleDimensionShift()
 		GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan, TEXT(">>> [INPUT] Left Shift Pressed! Requesting Dimension Shift..."));
 	}
 
-	// Close weapon wheel or inventory overlay if open before shifting
+	// Close weapon wheel, inventory, or active trap placement before shifting.
 	if (bIsWeaponWheelOpen)
 	{
 		OnTabReleased();
+	}
+	if (DeployablePlacement && DeployablePlacement->IsPlacing())
+	{
+		DeployablePlacement->CancelPlacement();
 	}
 	if (TarkovInventory && TarkovInventory->IsInventoryOpen())
 	{
@@ -1341,6 +1368,10 @@ void AShooterCharacter::HandleDimensionShift()
 void AShooterCharacter::HandleOnDimensionShifted(EGameDimension NewDimension, FVector TargetLocation)
 {
 	CurrentDimension = NewDimension;
+	if (DeployablePlacement && DeployablePlacement->IsPlacing())
+	{
+		DeployablePlacement->CancelPlacement();
+	}
 
 	// Waking from bed or cancelling active planting camera on shift restores camera and movement immediately
 	if (bIsSleepingInBed)
@@ -1744,6 +1775,11 @@ AShooterWeapon* AShooterCharacter::FindWeaponOfType(TSubclassOf<AShooterWeapon> 
 
 void AShooterCharacter::Die()
 {
+	if (DeployablePlacement && DeployablePlacement->IsPlacing())
+	{
+		DeployablePlacement->CancelPlacement();
+	}
+
 	// clear anim instances before unpossession to avoid ABP_FP_Pistol Accessed None errors
 	if (GetFirstPersonMesh())
 	{
