@@ -60,6 +60,10 @@ FReply UTarkovInventoryItemWidget::NativeOnMouseButtonDown(const FGeometry& InGe
 					}
 					if (UFarmingComponent* FarmComp = Pawn->FindComponentByClass<UFarmingComponent>())
 					{
+						if (UDeployablePlacementComponent* Placement = Pawn->FindComponentByClass<UDeployablePlacementComponent>())
+						{
+							Placement->CancelPlacement();
+						}
 						FarmComp->StartPlotPlacement(ItemId);
 						return FReply::Handled();
 					}
@@ -81,21 +85,18 @@ FReply UTarkovInventoryItemWidget::NativeOnMouseButtonDown(const FGeometry& InGe
 					[this](const FInventoryGridItem& Item) { return Item.ItemId == ItemId; });
 				if (ClickedItem && ClickedItem->PlaceableClass)
 				{
-					if (Pawn->GetActorLocation().Z < -10000.0f)
+					const TSubclassOf<AActor> PlaceableClass = ClickedItem->PlaceableClass;
+					if (UDeployablePlacementComponent* Placement = Pawn->FindComponentByClass<UDeployablePlacementComponent>())
 					{
-						if (GEngine)
+						if (UFarmingComponent* FarmComp = Pawn->FindComponentByClass<UFarmingComponent>())
 						{
-							GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Orange,
-								TEXT("[TRAP] Shift to the Combat world [Left Shift] before placing a Landmine!"));
+							FarmComp->CancelPlotPlacement();
 						}
-					}
-					else if (UDeployablePlacementComponent* Placement = Pawn->FindComponentByClass<UDeployablePlacementComponent>())
-					{
 						if (Comp->IsInventoryOpen())
 						{
 							Comp->ToggleInventory();
 						}
-						Placement->StartPlacement(ItemId, ClickedItem->PlaceableClass);
+						Placement->StartPlacement(ItemId, PlaceableClass);
 						return FReply::Handled();
 					}
 				}

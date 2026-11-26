@@ -43,8 +43,27 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="NPC Spawner", meta = (ClampMin = 0, ClampMax = 10))
 	float RespawnDelay = 5.0f;
 
+	/**
+	 * Deterministic base order within the placed spawner set. Slow spawners are all
+	 * available on Night 1; fast spawners use their relative order within the fast
+	 * subset to unlock one per later night.
+	 * Legacy map actors named ShooterNPCSpawner_N fall back to N in BeginPlay.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="NPC Spawner")
+	int32 UnlockOrder = -1;
+
 	/** Timer to spawn NPCs after a delay */
 	FTimerHandle SpawnTimer;
+
+	/** Low-frequency state polling for night/day and daily unlock transitions. */
+	FTimerHandle StateTimer;
+
+	TWeakObjectPtr<AShooterNPC> CurrentNPC;
+	float NextSpawnTime = 0.0f;
+	bool bHasSpawned = false;
+	bool bWaitingForDeath = false;
+	bool bFastSpawner = false;
+	int32 TypeUnlockOrder = -1;
 
 public:	
 	
@@ -63,6 +82,21 @@ protected:
 
 	/** Spawn an NPC and subscribe to its death event */
 	void SpawnNPC();
+
+	/** Re-evaluates night eligibility, daily unlocks, and pending spawn timing. */
+	void EvaluateSpawnState();
+
+	/** Returns true when this spawner is unlocked, nighttime, and ready to spawn. */
+	bool IsSpawnEligible() const;
+
+	/** Returns the configured order, or the legacy numeric actor-name suffix. */
+	int32 GetEffectiveUnlockOrder() const;
+
+	/** Caches fast/slow type and deterministic order within that type. */
+	void CacheTypeUnlockOrder();
+
+	/** Returns true when the configured NPC class is a fast zombie variant. */
+	bool IsFastSpawner() const;
 
 	/** Called when the spawned NPC has died */
 	UFUNCTION()

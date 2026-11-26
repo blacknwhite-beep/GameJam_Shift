@@ -16,6 +16,7 @@
 #include "Farming/BarnShopActor.h"
 #include "Farming/FarmHouseActor.h"
 #include "Farming/FarmBedActor.h"
+#include "Traps/LandmineActor.h"
 #include "Kismet/GameplayStatics.h"
 #include "ShooterCharacter.h"
 #include "ShooterPlayerController.h"
@@ -169,6 +170,7 @@ void UDimensionShiftSubsystem::HandleFarmLevelShown()
 			}
 
 			SyncFarmPlotsToCombat(World);
+			SyncLandminesToCombat(World);
 		}
 	}
 }
@@ -224,6 +226,111 @@ void UDimensionShiftSubsystem::SyncFarmPlotsToCombat(UWorld* World) const
 	}
 
 	UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Mirrored %d Farm plots -> Combat world."), SyncedCount);
+}
+
+void UDimensionShiftSubsystem::SyncLandminesToCombat(UWorld* World) const
+{
+	if (!World)
+	{
+		return;
+	}
+
+	TArray<ALandmineActor*> FarmMines;
+	TArray<ALandmineActor*> CombatMines;
+	for (TActorIterator<ALandmineActor> It(World); It; ++It)
+	{
+		ALandmineActor* Mine = *It;
+		if (!IsValid(Mine))
+		{
+			continue;
+		}
+		if (Mine->GetActorLocation().Z < -10000.0f)
+		{
+			FarmMines.Add(Mine);
+		}
+		else
+		{
+			CombatMines.Add(Mine);
+		}
+	}
+
+	TMap<FGuid, ALandmineActor*> CombatMirrorsByPair;
+	TSet<ALandmineActor*> DuplicateMirrors;
+	for (ALandmineActor* Mine : CombatMines)
+	{
+		if (Mine->IsCombatMirror() && Mine->GetMirrorPairId().IsValid())
+		{
+			ALandmineActor* Existing = CombatMirrorsByPair.FindRef(Mine->GetMirrorPairId());
+			if (IsValid(Existing) && Existing != Mine)
+			{
+				DuplicateMirrors.Add(Mine);
+			}
+			else if (!IsValid(Existing))
+			{
+				CombatMirrorsByPair.Add(Mine->GetMirrorPairId(), Mine);
+			}
+		}
+	}
+
+	TSet<FGuid> ValidFarmPairs;
+	int32 SyncedCount = 0;
+	int32 CreatedCount = 0;
+	for (ALandmineActor* FarmMine : FarmMines)
+	{
+		if (FarmMine->IsExploded())
+		{
+			continue;
+		}
+		const FGuid PairId = FarmMine->GetMirrorPairId();
+		if (!PairId.IsValid())
+		{
+			continue;
+		}
+		ValidFarmPairs.Add(PairId);
+
+		ALandmineActor* CombatMirror = CombatMirrorsByPair.FindRef(PairId);
+		if (!IsValid(CombatMirror))
+		{
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			CombatMirror = World->SpawnActor<ALandmineActor>(
+				ALandmineActor::StaticClass(),
+				FarmMine->GetActorLocation() - FarmWorldOffset,
+				FarmMine->GetActorRotation(),
+				SpawnParams
+			);
+			if (CombatMirror)
+			{
+				CombatMirror->ConfigureAsMirror(FarmMine);
+				CombatMirrorsByPair.Add(PairId, CombatMirror);
+				++CreatedCount;
+			}
+		}
+
+		if (IsValid(CombatMirror))
+		{
+			FarmMine->SetLinkedMirror(CombatMirror);
+			CombatMirror->SetLinkedMirror(FarmMine);
+			++SyncedCount;
+		}
+	}
+
+	// Remove duplicate and orphaned Combat mirrors, keeping exactly one copy per Farm source.
+	for (ALandmineActor* Mine : CombatMines)
+	{
+		if (!Mine->IsCombatMirror())
+		{
+			continue;
+		}
+		if (DuplicateMirrors.Contains(Mine) || !ValidFarmPairs.Contains(Mine->GetMirrorPairId()))
+		{
+			Mine->Destroy();
+		}
+	}
+
+	UE_LOG(LogGameJam_Shift_2026, Log,
+		TEXT("UDimensionShiftSubsystem: Synced %d Landmines -> Combat world (%d new mirrors)."),
+		SyncedCount, CreatedCount);
 }
 
 void UDimensionShiftSubsystem::MatureSleepReadyCrops(UWorld* World)
@@ -690,6 +797,7 @@ bool UDimensionShiftSubsystem::RequestShift(ACharacter* PlayerCharacter)
 	if (CurrentDimension == EGameDimension::Combat)
 	{
 		SyncFarmPlotsToCombat(World);
+		SyncLandminesToCombat(World);
 	}
 
 	// Broadcast event to notify audio, camera shake, visual effects, and UI
@@ -951,6 +1059,7 @@ void UDimensionShiftSubsystem::TickDayNightClock(UWorld* World, float DeltaTime)
 	else if (!bWasNight && bNowNight)
 	{
 		SyncFarmPlotsToCombat(World);
+		SyncLandminesToCombat(World);
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(9181, 5.0f, FColor::Red,
@@ -993,6 +1102,7 @@ void UDimensionShiftSubsystem::AdvanceTimeByRealMinute(UWorld* WorldContext)
 		if (!bWasNight && bNowNight)
 		{
 			SyncFarmPlotsToCombat(World);
+			SyncLandminesToCombat(World);
 		}
 		UpdateFarmSunForTimeOfDay(World);
 	}

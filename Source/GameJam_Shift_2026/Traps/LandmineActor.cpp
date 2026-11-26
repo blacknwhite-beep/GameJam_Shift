@@ -92,8 +92,8 @@ ALandmineActor::ALandmineActor()
 	ExplosionLight->SetupAttachment(MineRoot);
 	ExplosionLight->SetRelativeLocation(FVector(0.0f, 0.0f, 70.0f));
 	ExplosionLight->SetIntensityUnits(ELightUnits::Candelas);
-	ExplosionLight->SetIntensity(900.0f);
-	ExplosionLight->SetAttenuationRadius(900.0f);
+	ExplosionLight->SetIntensity(4500.0f);
+	ExplosionLight->SetAttenuationRadius(1800.0f);
 	ExplosionLight->SetLightColor(FColor(255, 150, 55));
 	ExplosionLight->SetCastShadows(false);
 	ExplosionLight->SetVisibility(false);
@@ -144,6 +144,11 @@ void ALandmineActor::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (!MirrorPairId.IsValid())
+	{
+		MirrorPairId = FGuid::NewGuid();
+	}
+
 	if (TriggerSphere)
 	{
 		TriggerSphere->SetSphereRadius(TriggerRadius);
@@ -159,6 +164,32 @@ void ALandmineActor::BeginPlay()
 	}
 }
 
+void ALandmineActor::SetLinkedMirror(ALandmineActor* Mirror)
+{
+	LinkedMirrorMine = Mirror;
+}
+
+void ALandmineActor::ConfigureAsMirror(ALandmineActor* Source)
+{
+	if (!Source)
+	{
+		return;
+	}
+	MirrorPairId = Source->GetMirrorPairId();
+	bIsCombatMirror = true;
+	SetLinkedMirror(Source);
+}
+
+void ALandmineActor::DestroyLinkedMirror()
+{
+	if (ALandmineActor* Mirror = LinkedMirrorMine.Get())
+	{
+		Mirror->LinkedMirrorMine.Reset();
+		Mirror->Destroy();
+	}
+	LinkedMirrorMine.Reset();
+}
+
 void ALandmineActor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -169,7 +200,7 @@ void ALandmineActor::Tick(float DeltaTime)
 		const float Alpha = FMath::Clamp(ExplosionElapsed / ExplosionVisualDuration, 0.0f, 1.0f);
 		if (ExplosionFlash)
 		{
-			ExplosionFlash->SetRelativeScale3D(FVector(0.12f + Alpha * 1.65f));
+			ExplosionFlash->SetRelativeScale3D(FVector(0.25f + Alpha * 8.25f));
 			if (FlashMID)
 			{
 				FlashMID->SetScalarParameterValue(TEXT("Opacity"), 1.0f - Alpha);
@@ -177,7 +208,7 @@ void ALandmineActor::Tick(float DeltaTime)
 		}
 		if (ExplosionLight)
 		{
-			ExplosionLight->SetIntensity(900.0f * (1.0f - Alpha) * (1.0f - Alpha));
+			ExplosionLight->SetIntensity(4500.0f * (1.0f - Alpha) * (1.0f - Alpha));
 		}
 		if (Alpha >= 1.0f)
 		{
@@ -271,7 +302,7 @@ void ALandmineActor::Explode()
 
 	if (ExplosionSound)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, ExplosionSound, GetActorLocation(), 1.35f, 0.48f);
+		UGameplayStatics::PlaySoundAtLocation(this, ExplosionSound, GetActorLocation(), 2.0f, 0.42f);
 	}
 
 	UWorld* World = GetWorld();
@@ -317,9 +348,9 @@ void ALandmineActor::Explode()
 				+ FVector(0.0f, 0.0f, UpwardLaunchSpeed * Strength)
 				+ FMath::VRand() * 55.0f;
 			const FVector SpinVelocity(
-				FMath::FRandRange(-900.0f, 900.0f),
-				FMath::FRandRange(-900.0f, 900.0f),
-				FMath::FRandRange(-900.0f, 900.0f)
+				FMath::FRandRange(-1800.0f, 1800.0f),
+				FMath::FRandRange(-1800.0f, 1800.0f),
+				FMath::FRandRange(-1800.0f, 1800.0f)
 			);
 			Zombie->KillByExplosion(LaunchVelocity, SpinVelocity);
 			continue;
@@ -338,4 +369,7 @@ void ALandmineActor::Explode()
 			}
 		}
 	}
+
+	// Either dimension copy exploding consumes/removes the paired copy as well.
+	DestroyLinkedMirror();
 }

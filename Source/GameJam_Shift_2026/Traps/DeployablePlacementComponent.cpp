@@ -1,9 +1,11 @@
 // Copyright GameJam Shift 2026. All Rights Reserved.
 
 #include "Traps/DeployablePlacementComponent.h"
+#include "Dimension/DimensionShiftSubsystem.h"
 #include "Inventory/TarkovInventoryComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
@@ -18,6 +20,19 @@ UDeployablePlacementComponent::UDeployablePlacementComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.TickGroup = TG_PrePhysics;
 	SetComponentTickEnabled(false);
+
+	// Constructor-time hard references are required by FObjectFinder and ensure
+	// the preview assets are included in cooked builds.
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderFinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	if (CylinderFinder.Succeeded())
+	{
+		PreviewCylinderMesh = CylinderFinder.Object;
+	}
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PreviewMaterialFinder(TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
+	if (PreviewMaterialFinder.Succeeded())
+	{
+		PreviewMaterial = PreviewMaterialFinder.Object;
+	}
 }
 
 void UDeployablePlacementComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -62,18 +77,16 @@ void UDeployablePlacementComponent::StartPlacement(FGuid ItemId, TSubclassOf<AAc
 	PreviewMesh->SetCastShadow(false);
 	PreviewMesh->SetCanEverAffectNavigation(false);
 
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderFinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
-	if (CylinderFinder.Succeeded())
+	if (PreviewCylinderMesh)
 	{
-		PreviewMesh->SetStaticMesh(CylinderFinder.Object);
+		PreviewMesh->SetStaticMesh(PreviewCylinderMesh);
 	}
 	PreviewMesh->SetRelativeScale3D(FVector(0.55f, 0.55f, 0.16f));
 	PreviewMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 8.0f));
 
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> PreviewMaterialFinder(TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
-	if (PreviewMaterialFinder.Succeeded())
+	if (PreviewMaterial)
 	{
-		PreviewMID = UMaterialInstanceDynamic::Create(PreviewMaterialFinder.Object, PreviewActor);
+		PreviewMID = UMaterialInstanceDynamic::Create(PreviewMaterial, PreviewActor);
 		if (PreviewMID)
 		{
 			PreviewMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.10f, 0.95f, 0.30f, 1.0f));
@@ -131,9 +144,10 @@ void UDeployablePlacementComponent::UpdatePreviewTransform()
 		);
 	}
 
+	const bool bInFarm = GetOwner()->GetActorLocation().Z < -10000.0f;
 	const bool bInCombat = GetOwner()->GetActorLocation().Z > -10000.0f;
 	const bool bFlatGround = bHitGround && GroundHit.ImpactNormal.Z > 0.70f;
-	bPlacementValid = bInCombat && bFlatGround;
+	bPlacementValid = (bInFarm || bInCombat) && bFlatGround;
 
 	const FVector FinalLoc = bHitGround
 		? GroundHit.ImpactPoint + GroundHit.ImpactNormal * 1.0f
@@ -194,6 +208,18 @@ bool UDeployablePlacementComponent::ConfirmPlacement()
 	}
 
 	CancelPlacement();
+
+	// Farm-world mines own a linked Combat-world mirror at FarmWorldOffset.
+	if (PlacedActor->GetActorLocation().Z < -10000.0f)
+	{
+		if (UGameInstance* GI = GetWorld()->GetGameInstance())
+		{
+			if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			{
+				Sub->SyncLandminesToCombat(GetWorld());
+			}
+		}
+	}
 
 	if (GEngine)
 	{

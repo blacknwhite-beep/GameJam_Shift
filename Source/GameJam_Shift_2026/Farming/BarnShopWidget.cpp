@@ -306,7 +306,7 @@ void UBarnShopWidget::NativeOnInitialized()
 		TrapsTabBox,
 		TEXT("Landmine"),
 		TEXT("Proximity Landmine"),
-		TEXT("Place in Combat. Kills nearby zombies intact and launches their ragdolls."),
+		TEXT("Place in Farm or Combat. Farm placements mirror into the Zombie world."),
 		500,
 		BtnLandmine,
 		LandmineLabel
@@ -408,7 +408,7 @@ void UBarnShopWidget::SetActiveTab(int32 TabIndex)
 	}
 	else
 	{
-		SetStatus(TEXT("Buy a Landmine, then click it in Inventory while in Combat to place it."), FLinearColor(1.0f, 0.72f, 0.52f, 1.0f));
+		SetStatus(TEXT("Buy a Landmine, then click it in Inventory while in Farm or Combat to place it."), FLinearColor(1.0f, 0.72f, 0.52f, 1.0f));
 	}
 }
 
@@ -676,7 +676,7 @@ void UBarnShopWidget::OnBuyLandmine()
 	}
 
 	RefreshGoldText();
-	SetStatus(TEXT("Purchased Landmine! Shift to Combat, open Inventory [I/Tab], and click it to place."), FLinearColor(0.35f, 1.0f, 0.45f, 1.0f));
+	SetStatus(TEXT("Purchased Landmine! Open Inventory [I/Tab] and click it. Farm placements mirror into Combat."), FLinearColor(0.35f, 1.0f, 0.45f, 1.0f));
 }
 
 void UBarnShopWidget::OnCloseClicked()

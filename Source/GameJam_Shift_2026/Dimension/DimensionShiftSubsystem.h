@@ -233,6 +233,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Dimension Shift|Farm Level")
 	void SyncFarmPlotsToCombat(UWorld* World) const;
 
+	/** Creates/refreshes one linked Combat-world Landmine for every Farm-world mine. */
+	UFUNCTION(BlueprintCallable, Category = "Dimension Shift|Farm Level")
+	void SyncLandminesToCombat(UWorld* World) const;
+
 	/** At dawn, matures every Farm-world crop that was watered through its 3rd phase before the player slept. */
 	void MatureSleepReadyCrops(UWorld* World);
 

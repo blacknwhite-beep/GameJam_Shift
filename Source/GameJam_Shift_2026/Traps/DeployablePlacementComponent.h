@@ -8,6 +8,8 @@
 
 class AActor;
 class UMaterialInstanceDynamic;
+class UMaterialInterface;
+class UStaticMesh;
 class UStaticMeshComponent;
 
 /** Generic click-to-place flow for backpack deployables such as the Landmine. */
@@ -45,6 +47,12 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> PreviewMID = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Placement")
+	TObjectPtr<UStaticMesh> PreviewCylinderMesh = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Placement")
+	TObjectPtr<UMaterialInterface> PreviewMaterial = nullptr;
 
 	FGuid PendingItemId;
 	TSubclassOf<AActor> PendingPlaceableClass;

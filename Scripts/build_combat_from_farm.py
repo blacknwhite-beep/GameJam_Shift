@@ -3,7 +3,7 @@ Duplicates Lvl_Farm into Lvl_Combat so the Zombie/Shooter world is an exact dark
 moody nightmare mirror of the Farm world (including Cozy Nature trees, bushes,
 flowers, rocks, Barn, Silo, Pond, Field, Fences, Paths), with the original dark
 moody Combat lighting, horror ambience, NavMeshBoundsVolume, PlayerStarts,
-BP_ShooterGameMode, and 8 Zombie Spawners (BP_Zombie_Slow / BP_Zombie_Fast).
+BP_ShooterGameMode, and 10 difficulty-ranked Zombie Spawners (BP_Zombie_Slow / BP_Zombie_Fast).
 
 Run via:
   UnrealEditor-Cmd.exe <uproject> -ExecutePythonScript=<this file> -unattended -nop4 -nosplash
@@ -192,7 +192,7 @@ def place_combat_spawners_nav_and_starts():
             (1450.0, -850.0, 150.0, slow_cls, "ZombieSpawner_FieldSE_Slow", 3.0),
             (1450.0, 850.0, -150.0, slow_cls, "ZombieSpawner_FieldNE_Slow", 3.2),
         ]
-        for x, y, yaw, npc_cls, label, delay in spawns:
+        for unlock_order, (x, y, yaw, npc_cls, label, delay) in enumerate(spawns):
             sp = actor_sub.spawn_actor_from_class(
                 spawner_cls,
                 unreal.Vector(x, y, 5.0),
@@ -202,6 +202,7 @@ def place_combat_spawners_nav_and_starts():
             sp.set_editor_property("InitialSpawnDelay", delay)
             sp.set_editor_property("SpawnCount", 8)
             sp.set_editor_property("RespawnDelay", 4.0)
+            sp.set_editor_property("UnlockOrder", unlock_order)
             sp.set_actor_label(label)
             sp.set_folder_path("Combat/Zombies")
         log(f"Placed {len(spawns)} Zombie Spawners (5 Fast + 5 Slow) around the dark farm valley")

@@ -27,6 +27,19 @@ class GAMEJAM_SHIFT_2026_API ALandmineActor : public AActor
 public:
 	ALandmineActor();
 
+	/** Stable pairing ID used to keep Farm and Combat copies synchronized. */
+	FGuid GetMirrorPairId() const { return MirrorPairId; }
+	bool IsCombatMirror() const { return bIsCombatMirror; }
+	bool IsExploded() const { return bExploded; }
+	ALandmineActor* GetLinkedMirror() const { return LinkedMirrorMine.Get(); }
+
+	/** Links two dimension copies and copies the source pairing ID to the Combat mirror. */
+	void SetLinkedMirror(ALandmineActor* Mirror);
+	void ConfigureAsMirror(ALandmineActor* Source);
+
+	/** Removes the paired copy when either mine explodes or its source disappears. */
+	void DestroyLinkedMirror();
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
@@ -84,18 +97,21 @@ private:
 	float ExplosionRadius = 650.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmine", meta = (AllowPrivateAccess = "true", ClampMin = "100.0", Units = "cm/s"))
-	float UpwardLaunchSpeed = 720.0f;
+	float UpwardLaunchSpeed = 3600.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmine", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", Units = "cm/s"))
-	float RadialLaunchSpeed = 420.0f;
+	float RadialLaunchSpeed = 2100.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmine", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
-	float PropImpulseForce = 14000.0f;
+	float PropImpulseForce = 70000.0f;
 
 	FTimerHandle ArmTimer;
 	bool bArmed = false;
 	bool bExploded = false;
+	bool bIsCombatMirror = false;
+	FGuid MirrorPairId;
+	TWeakObjectPtr<ALandmineActor> LinkedMirrorMine;
 	float BlinkTime = 0.0f;
 	float ExplosionElapsed = 0.0f;
-	float ExplosionVisualDuration = 0.38f;
+	float ExplosionVisualDuration = 0.50f;
 };
