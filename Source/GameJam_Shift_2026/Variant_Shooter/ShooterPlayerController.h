@@ -97,6 +97,9 @@ protected:
 	/** Returns true if the player should use UMG touch controls */
 	bool ShouldUseTouchControls() const;
 
+	/** Closes inventory, weapon wheel, and Barn Shop overlays before pausing/traveling. */
+	void CloseTransientOverlays();
+
 public:
 
 	/** Returns the combat bullet counter UI widget */
@@ -106,4 +109,12 @@ public:
 	/** Toggles the Start / Settings Menu overlay in-game (bound to P key) */
 	UFUNCTION(BlueprintCallable, Category="Shooter|UI")
 	void ToggleSettingsMenu();
+
+	/** Opens/closes the true paused-game settings overlay (Escape or P). */
+	UFUNCTION(BlueprintCallable, Category="Shooter|UI")
+	void TogglePauseMenu();
+
+	/** Returns from the pause menu to a fresh main-menu overlay. */
+	UFUNCTION(BlueprintCallable, Category="Shooter|UI")
+	void QuitToMainMenu();
 };

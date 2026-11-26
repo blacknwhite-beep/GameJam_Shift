@@ -12,6 +12,9 @@
 #include "DimensionShiftSubsystem.h"
 #include "InterWorld/GoldHUDWidget.h"
 #include "InterWorld/StartMenuWidget.h"
+#include "Farming/BarnShopWidget.h"
+#include "Inventory/TarkovInventoryComponent.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
 #include "GameJam_Shift_2026.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 
@@ -115,44 +118,110 @@ void AShooterPlayerController::SetupInputComponent()
 			}
 		}
 
-		// Allow opening the Settings Menu at any time in-game by pressing [P]
+		// Escape/P opens the paused settings overlay. P remains as an alias.
 		if (InputComponent)
 		{
-			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AShooterPlayerController::ToggleSettingsMenu);
+			InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AShooterPlayerController::TogglePauseMenu);
+			InputComponent->BindKey(EKeys::P, IE_Pressed, this, &AShooterPlayerController::TogglePauseMenu);
 		}
 	}
 }
 
 void AShooterPlayerController::ToggleSettingsMenu()
 {
+	TogglePauseMenu();
+}
+
+void AShooterPlayerController::TogglePauseMenu()
+{
 	if (!IsLocalPlayerController())
 	{
 		return;
 	}
 
-	if (StartMenuWidget && StartMenuWidget->IsInViewport())
+	if (StartMenuWidget && StartMenuWidget->IsInViewport() && StartMenuWidget->IsPauseMenuMode())
 	{
 		StartMenuWidget->OnStartGameClicked();
 		return;
 	}
 
+	// Never pause over the real main menu.
 	if (UGameInstance* GI = GetGameInstance())
 	{
 		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
 		{
-			Sub->bIsStartMenuActive = true;
+			if (Sub->bIsStartMenuActive)
+			{
+				return;
+			}
 		}
 	}
 
-	if (!StartMenuWidget)
+	if (AShooterCharacter* ShooterChar = Cast<AShooterCharacter>(GetPawn()))
 	{
-		StartMenuWidget = CreateWidget<UStartMenuWidget>(this, UStartMenuWidget::StaticClass());
+		ShooterChar->DoStopFiring();
 	}
 
+	CloseTransientOverlays();
+
+	StartMenuWidget = CreateWidget<UStartMenuWidget>(this, UStartMenuWidget::StaticClass());
 	if (StartMenuWidget)
 	{
+		StartMenuWidget->OpenPauseMenu();
 		StartMenuWidget->AddToViewport(100);
-		StartMenuWidget->OpenOnSettingsTab();
+		UGameplayStatics::SetGamePaused(this, true);
+	}
+}
+
+void AShooterPlayerController::QuitToMainMenu()
+{
+	CloseTransientOverlays();
+	UGameplayStatics::SetGamePaused(this, false);
+
+	if (StartMenuWidget && StartMenuWidget->IsInViewport())
+	{
+		StartMenuWidget->RemoveFromParent();
+	}
+	StartMenuWidget = nullptr;
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())
+		{
+			Sub->ResetSession();
+		}
+	}
+
+	// Reload the run so inventory, crops, enemies, landmines and player state are fresh.
+	// PlayerController::BeginPlay will recreate the real main menu from the reset flags.
+	UGameplayStatics::OpenLevel(this, FName(TEXT("/Game/Dev_Blueprint/Maps/Lvl_Combat")), true, TEXT(""));
+}
+
+void AShooterPlayerController::CloseTransientOverlays()
+{
+	if (AShooterCharacter* ShooterChar = Cast<AShooterCharacter>(GetPawn()))
+	{
+		if (ShooterChar->IsWeaponWheelOpen())
+		{
+			ShooterChar->OnTabReleased();
+		}
+		if (UTarkovInventoryComponent* Inv = ShooterChar->FindComponentByClass<UTarkovInventoryComponent>())
+		{
+			if (Inv->IsInventoryOpen())
+			{
+				Inv->ToggleInventory();
+			}
+		}
+	}
+
+	TArray<UUserWidget*> ShopWidgets;
+	UWidgetBlueprintLibrary::GetAllWidgetsOfClass(this, ShopWidgets, UBarnShopWidget::StaticClass());
+	for (UUserWidget* ShopWidget : ShopWidgets)
+	{
+		if (ShopWidget)
+		{
+			ShopWidget->RemoveFromParent();
+		}
 	}
 }
 

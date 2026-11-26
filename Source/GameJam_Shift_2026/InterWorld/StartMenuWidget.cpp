@@ -2,9 +2,11 @@
 
 #include "InterWorld/StartMenuWidget.h"
 #include "DimensionShiftSubsystem.h"
+#include "Variant_Shooter/ShooterPlayerController.h"
 #include "Farming/FarmPlotBase.h"
 #include "ShooterPlayerController.h"
 #include "Blueprint/WidgetTree.h"
+#include "Components/BackgroundBlur.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/CanvasPanel.h"
@@ -54,6 +56,26 @@ void UStartMenuWidget::NativeOnInitialized()
 	UCanvasPanel* RootCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("StartMenuRoot"));
 	WidgetTree->RootWidget = RootCanvas;
 
+	// Pause-only live-game backdrop. This sits above the game viewport but below
+	// the normal start-menu previews and the shared center menu card.
+	PauseBackgroundBlur = WidgetTree->ConstructWidget<UBackgroundBlur>(UBackgroundBlur::StaticClass(), TEXT("PauseBackgroundBlur"));
+	PauseBackgroundBlur->SetBlurStrength(3.5f);
+	PauseBackgroundBlur->SetVisibility(ESlateVisibility::Collapsed);
+	if (UCanvasPanelSlot* BlurSlot = RootCanvas->AddChildToCanvas(PauseBackgroundBlur))
+	{
+		BlurSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+		BlurSlot->SetOffsets(FMargin(0.0f));
+	}
+
+	PauseShade = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PauseShade"));
+	PauseShade->SetBrushColor(FLinearColor(0.004f, 0.007f, 0.014f, 0.62f));
+	PauseShade->SetVisibility(ESlateVisibility::Collapsed);
+	if (UCanvasPanelSlot* ShadeSlot = RootCanvas->AddChildToCanvas(PauseShade))
+	{
+		ShadeSlot->SetAnchors(FAnchors(0.0f, 0.0f, 1.0f, 1.0f));
+		ShadeSlot->SetOffsets(FMargin(0.0f));
+	}
+
 	// =========================================================================
 	// 1. TOP HALF (0.0 -> 0.50 Y): Live Sunlit Farm Dimension Preview
 	// =========================================================================
@@ -65,7 +87,7 @@ void UStartMenuWidget::NativeOnInitialized()
 	}
 
 	// Top-Left Farm Dimension Badge
-	UBorder* FarmBadge = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("FarmBadge"));
+	FarmBadge = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("FarmBadge"));
 	FarmBadge->SetBrushColor(FLinearColor(0.04f, 0.14f, 0.07f, 0.88f));
 	FarmBadge->SetPadding(FMargin(16.0f, 8.0f));
 	if (UCanvasPanelSlot* FBSlot = RootCanvas->AddChildToCanvas(FarmBadge))
@@ -97,7 +119,7 @@ void UStartMenuWidget::NativeOnInitialized()
 	}
 
 	// Bottom-Left Combat Dimension Badge
-	UBorder* CombatBadge = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CombatBadge"));
+	CombatBadge = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("CombatBadge"));
 	CombatBadge->SetBrushColor(FLinearColor(0.14f, 0.04f, 0.04f, 0.88f));
 	CombatBadge->SetPadding(FMargin(16.0f, 8.0f));
 	if (UCanvasPanelSlot* CBSlot = RootCanvas->AddChildToCanvas(CombatBadge))
@@ -121,7 +143,7 @@ void UStartMenuWidget::NativeOnInitialized()
 	// =========================================================================
 	// 3. HORIZONTAL RIFT DIVIDER BAR AT Y = 0.50
 	// =========================================================================
-	UBorder* RiftOuterGlow = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RiftOuterGlow"));
+	RiftOuterGlow = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RiftOuterGlow"));
 	RiftOuterGlow->SetBrushColor(FLinearColor(0.02f, 0.05f, 0.08f, 0.95f));
 	if (UCanvasPanelSlot* RiftGlowSlot = RootCanvas->AddChildToCanvas(RiftOuterGlow))
 	{
@@ -130,7 +152,7 @@ void UStartMenuWidget::NativeOnInitialized()
 		RiftGlowSlot->SetOffsets(FMargin(0.0f, 0.0f, 0.0f, 10.0f));
 	}
 
-	UBorder* RiftCoreLine = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RiftCoreLine"));
+	RiftCoreLine = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("RiftCoreLine"));
 	RiftCoreLine->SetBrushColor(FLinearColor(0.25f, 0.92f, 0.78f, 0.95f));
 	if (UCanvasPanelSlot* RiftLineSlot = RootCanvas->AddChildToCanvas(RiftCoreLine))
 	{
@@ -280,16 +302,16 @@ void UStartMenuWidget::NativeOnInitialized()
 	QuitButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnQuitGameClicked);
 	QuitSize->SetContent(QuitButton);
 
-	UTextBlock* QuitLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("QuitGameLabel"));
-	QuitLabel->SetText(FText::FromString(TEXT("QUIT")));
-	QuitLabel->SetJustification(ETextJustify::Center);
-	QuitLabel->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	QuitButtonLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("QuitGameLabel"));
+	QuitButtonLabel->SetText(FText::FromString(TEXT("QUIT")));
+	QuitButtonLabel->SetJustification(ETextJustify::Center);
+	QuitButtonLabel->SetColorAndOpacity(FSlateColor(FLinearColor::White));
 	{
-		FSlateFontInfo F = QuitLabel->GetFont();
+		FSlateFontInfo F = QuitButtonLabel->GetFont();
 		F.Size = 12;
-		QuitLabel->SetFont(F);
+		QuitButtonLabel->SetFont(F);
 	}
-	QuitButton->SetContent(QuitLabel);
+	QuitButton->SetContent(QuitButtonLabel);
 
 	// =========================================================================
 	// TAB 1: SETTINGS TAB (Master Volume, Mouse Sensitivity, Developer Mode)
@@ -485,7 +507,7 @@ void UStartMenuWidget::NativeOnInitialized()
 	}
 
 	USizeBox* SettingsBackSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsBackSize"));
-	SettingsBackSize->SetWidthOverride(150.0f);
+	SettingsBackSize->SetWidthOverride(220.0f);
 	SettingsBackSize->SetHeightOverride(40.0f);
 	if (UHorizontalBoxSlot* SBSlot = SettingsBtnRow->AddChildToHorizontalBox(SettingsBackSize))
 	{
@@ -497,16 +519,16 @@ void UStartMenuWidget::NativeOnInitialized()
 	TabPlayButton->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnTabPlayClicked);
 	SettingsBackSize->SetContent(TabPlayButton);
 
-	UTextBlock* SettingsBackLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SettingsBackLbl"));
-	SettingsBackLbl->SetText(FText::FromString(TEXT("BACK")));
-	SettingsBackLbl->SetJustification(ETextJustify::Center);
-	SettingsBackLbl->SetColorAndOpacity(FSlateColor(FLinearColor::White));
+	SettingsBackLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SettingsBackLbl"));
+	SettingsBackLabel->SetText(FText::FromString(TEXT("BACK")));
+	SettingsBackLabel->SetJustification(ETextJustify::Center);
+	SettingsBackLabel->SetColorAndOpacity(FSlateColor(FLinearColor::White));
 	{
-		FSlateFontInfo F = SettingsBackLbl->GetFont();
+		FSlateFontInfo F = SettingsBackLabel->GetFont();
 		F.Size = 11;
-		SettingsBackLbl->SetFont(F);
+		SettingsBackLabel->SetFont(F);
 	}
-	TabPlayButton->SetContent(SettingsBackLbl);
+	TabPlayButton->SetContent(SettingsBackLabel);
 
 	USizeBox* SettingsResumeSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SettingsResumeSize"));
 	SettingsResumeSize->SetWidthOverride(220.0f);
@@ -518,23 +540,26 @@ void UStartMenuWidget::NativeOnInitialized()
 	SettingsResumeBtn->OnClicked.AddUniqueDynamic(this, &UStartMenuWidget::OnStartGameClicked);
 	SettingsResumeSize->SetContent(SettingsResumeBtn);
 
-	UTextBlock* SettingsResumeLbl = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SettingsResumeLbl"));
-	SettingsResumeLbl->SetText(FText::FromString(TEXT("APPLY & PLAY")));
-	SettingsResumeLbl->SetJustification(ETextJustify::Center);
-	SettingsResumeLbl->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.98f, 0.82f, 1.0f)));
+	SettingsResumeLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SettingsResumeLbl"));
+	SettingsResumeLabel->SetText(FText::FromString(TEXT("APPLY & PLAY")));
+	SettingsResumeLabel->SetJustification(ETextJustify::Center);
+	SettingsResumeLabel->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.98f, 0.82f, 1.0f)));
 	{
-		FSlateFontInfo F = SettingsResumeLbl->GetFont();
+		FSlateFontInfo F = SettingsResumeLabel->GetFont();
 		F.Size = 11;
-		SettingsResumeLbl->SetFont(F);
+		SettingsResumeLabel->SetFont(F);
 	}
-	SettingsResumeBtn->SetContent(SettingsResumeLbl);
+	SettingsResumeBtn->SetContent(SettingsResumeLabel);
 }
 
 void UStartMenuWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 
-	SpawnSplitScreenCameras();
+	if (!bPauseMenuMode)
+	{
+		SpawnSplitScreenCameras();
+	}
 	RefreshSettingsUI();
 
 	if (StartButtonLabel && GetWorld() && GetWorld()->GetGameInstance())
@@ -823,6 +848,12 @@ void UStartMenuWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
+	if (bPauseMenuMode)
+	{
+		// The live game is paused and blurred; no preview cameras need ticking.
+		return;
+	}
+
 	MenuElapsedSeconds += InDeltaTime;
 	EnsurePreviewCropsInFarm();
 
@@ -910,7 +941,15 @@ void UStartMenuWidget::DestroySplitScreenCameras()
 FReply UStartMenuWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
 {
 	const FKey Key = InKeyEvent.GetKey();
-	if (Key == EKeys::Enter || Key == EKeys::SpaceBar || Key == EKeys::Escape || Key == EKeys::P)
+	if (bPauseMenuMode)
+	{
+		if (Key == EKeys::Enter || Key == EKeys::SpaceBar || Key == EKeys::Escape || Key == EKeys::P)
+		{
+			OnStartGameClicked();
+			return FReply::Handled();
+		}
+	}
+	else if (Key == EKeys::Enter || Key == EKeys::SpaceBar)
 	{
 		OnStartGameClicked();
 		return FReply::Handled();
@@ -920,6 +959,12 @@ FReply UStartMenuWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKey
 
 void UStartMenuWidget::OnTabPlayClicked()
 {
+	if (bPauseMenuMode)
+	{
+		// The settings-tab bottom-left button becomes "Quit to Main Menu".
+		OnQuitGameClicked();
+		return;
+	}
 	SetActiveTab(0);
 }
 
@@ -931,6 +976,75 @@ void UStartMenuWidget::OnTabSettingsClicked()
 void UStartMenuWidget::OpenOnSettingsTab()
 {
 	SetActiveTab(1);
+}
+
+void UStartMenuWidget::OpenPauseMenu()
+{
+	bPauseMenuMode = true;
+	OpenOnSettingsTab();
+
+	if (PauseBackgroundBlur)
+	{
+		PauseBackgroundBlur->SetBlurStrength(3.5f);
+		PauseBackgroundBlur->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (PauseShade)
+	{
+		PauseShade->SetVisibility(ESlateVisibility::Visible);
+	}
+	if (TopFarmViewImage)
+	{
+		TopFarmViewImage->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (BottomCombatViewImage)
+	{
+		BottomCombatViewImage->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (FarmBadge)
+	{
+		FarmBadge->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (CombatBadge)
+	{
+		CombatBadge->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (RiftOuterGlow)
+	{
+		RiftOuterGlow->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (RiftCoreLine)
+	{
+		RiftCoreLine->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	if (SettingsBackLabel)
+	{
+		SettingsBackLabel->SetText(FText::FromString(TEXT("QUIT TO MAIN MENU")));
+	}
+	if (SettingsResumeLabel)
+	{
+		SettingsResumeLabel->SetText(FText::FromString(TEXT("RESUME")));
+	}
+	if (StartButtonLabel)
+	{
+		StartButtonLabel->SetText(FText::FromString(TEXT("RESUME  [ESC / P]")));
+	}
+	if (QuitButtonLabel)
+	{
+		QuitButtonLabel->SetText(FText::FromString(TEXT("QUIT TO MAIN MENU")));
+	}
+}
+
+void UStartMenuWidget::ClosePauseMenu()
+{
+	bPauseMenuMode = false;
+	if (APlayerController* PC = GetOwningPlayer())
+	{
+		UGameplayStatics::SetGamePaused(PC, false);
+		PC->SetShowMouseCursor(false);
+		PC->SetInputMode(FInputModeGameOnly());
+	}
+	RemoveFromParent();
 }
 
 void UStartMenuWidget::SetActiveTab(int32 TabIndex)
@@ -1042,6 +1156,12 @@ void UStartMenuWidget::OnToggleDeveloperModeClicked()
 
 void UStartMenuWidget::OnStartGameClicked()
 {
+	if (bPauseMenuMode)
+	{
+		ClosePauseMenu();
+		return;
+	}
+
 	DestroySplitScreenCameras();
 
 	bool bStartingFreshGame = false;
@@ -1082,6 +1202,15 @@ void UStartMenuWidget::OnStartGameClicked()
 
 void UStartMenuWidget::OnQuitGameClicked()
 {
+	if (bPauseMenuMode)
+	{
+		if (AShooterPlayerController* PC = Cast<AShooterPlayerController>(GetOwningPlayer()))
+		{
+			PC->QuitToMainMenu();
+		}
+		return;
+	}
+
 	if (APlayerController* PC = GetOwningPlayer())
 	{
 		UKismetSystemLibrary::QuitGame(this, PC, EQuitPreference::Quit, false);

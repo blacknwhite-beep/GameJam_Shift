@@ -10,6 +10,7 @@ class UImage;
 class UButton;
 class UTextBlock;
 class UBorder;
+class UBackgroundBlur;
 class USlider;
 class UVerticalBox;
 class UTextureRenderTarget2D;
@@ -67,7 +68,16 @@ public:
 	/** Opens the menu directly on the Settings tab (used when pressing [P] or [O] in-game) */
 	void OpenOnSettingsTab();
 
+	/** Configures this same settings UI as the in-game pause menu. */
+	void OpenPauseMenu();
+
+	/** True while this widget is acting as the paused-game overlay. */
+	bool IsPauseMenuMode() const { return bPauseMenuMode; }
+
 protected:
+	/** Resumes gameplay and closes the pause overlay. */
+	void ClosePauseMenu();
+
 	void SetActiveTab(int32 TabIndex);
 	void RefreshSettingsUI();
 	void SpawnSplitScreenCameras();
@@ -79,6 +89,26 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UImage> BottomCombatViewImage;
+
+	/** Full-screen live-game blur and dark shade used only by pause mode. */
+	UPROPERTY(Transient)
+	TObjectPtr<UBackgroundBlur> PauseBackgroundBlur;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UBorder> PauseShade;
+
+	/** Start-menu preview decorations hidden while the pause overlay is active. */
+	UPROPERTY(Transient)
+	TObjectPtr<UBorder> FarmBadge;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UBorder> CombatBadge;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UBorder> RiftOuterGlow;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UBorder> RiftCoreLine;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> FarmRenderTarget;
@@ -114,6 +144,15 @@ protected:
 	TObjectPtr<UButton> QuitButton;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> QuitButtonLabel;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> SettingsBackLabel;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> SettingsResumeLabel;
+
+	UPROPERTY(Transient)
 	TObjectPtr<USlider> VolumeSlider;
 
 	UPROPERTY(Transient)
@@ -133,5 +172,6 @@ protected:
 
 	float MenuElapsedSeconds = 0.0f;
 	bool bSeededPreviewCrops = false;
+	bool bPauseMenuMode = false;
 	int32 ActiveTabIndex = 0;
 };

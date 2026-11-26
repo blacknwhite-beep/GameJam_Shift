@@ -723,6 +723,11 @@ void AShooterCharacter::DoJumpEnd()
 
 void AShooterCharacter::DoStartFiring()
 {
+	if (UGameplayStatics::IsGamePaused(this))
+	{
+		return;
+	}
+
 	if (UGameInstance* GI = GetGameInstance())
 	{
 		if (UDimensionShiftSubsystem* Sub = GI->GetSubsystem<UDimensionShiftSubsystem>())

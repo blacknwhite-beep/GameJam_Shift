@@ -6,6 +6,8 @@ Binaries/
 Intermediate/
 Saved/
 DerivedDataCache/
+Build/
+PackagedBuilds/
 .vs/
 *.sln.DotSettings.user
 

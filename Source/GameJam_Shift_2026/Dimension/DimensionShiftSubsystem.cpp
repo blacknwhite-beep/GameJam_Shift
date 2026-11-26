@@ -1025,6 +1025,28 @@ bool UDimensionShiftSubsystem::CanShiftToDimension(EGameDimension TargetDimensio
 	return !IsNightWindow();
 }
 
+void UDimensionShiftSubsystem::ResetSession()
+{
+	const int32 OldGold = CurrentGold;
+	CurrentGold = StartingGold;
+	CurrentTimeOfDay = 6.0f;
+	CurrentDay = 1;
+	CurrentDimension = EGameDimension::Combat;
+	bIsStartMenuActive = true;
+	bHasDismissedStartMenu = false;
+	bIsSleepingInBed = false;
+	bShouldReturnToBed = false;
+	LastSleptBed.Reset();
+	LastShiftTime = -100.0f;
+	FarmLevelStreaming.Reset();
+	PrototypeFarmPlatform.Reset();
+
+	UnlockedWeaponSlots.Reset();
+	UnlockedWeaponSlots.Add(0);
+
+	OnGoldChanged.Broadcast(CurrentGold, CurrentGold - OldGold);
+}
+
 void UDimensionShiftSubsystem::TickDayNightClock(UWorld* World, float DeltaTime)
 {
 	if (!World || bIsStartMenuActive || DeltaTime <= 0.0f)

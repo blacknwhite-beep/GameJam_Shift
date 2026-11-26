@@ -176,6 +176,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	bool IsDeveloperModeEnabled() const { return bDeveloperMode; }
 
+	/** Resets run progression for Quit to Main Menu while preserving user settings. */
+	UFUNCTION(BlueprintCallable, Category = "Session")
+	void ResetSession();
+
 	// -------------------------------------------------------------------------
 	// 24-Hour Day/Night Clock & Farm Sun Control
 	//   - 06:00 -> 24:00 (18 in-game hrs) = 5 real-time minutes (300s) -> Farm Phase
