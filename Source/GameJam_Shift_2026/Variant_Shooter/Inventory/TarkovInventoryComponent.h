@@ -114,6 +114,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Inventory")
 	bool bHasEquippedWeapon = false;
 
+	/** Number of full 100-round stacks of 9mm Pistol Ammo granted in the backpack on spawn */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Inventory|StartingLoadout", meta=(ClampMin="0", ClampMax="10"))
+	int32 StartingPistolAmmoStacks = 2;
+
 	/** UI Widget class to spawn for Tarkov inventory */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Inventory|UI")
 	TSubclassOf<UUserWidget> InventoryWidgetClass;

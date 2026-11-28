@@ -23,7 +23,7 @@ public:
 	 * Deposits a harvested crop/item directly into the target actor's UTarkovInventoryComponent.
 	 * Automatically stacks into existing slots where possible or finds free grid space (1x1).
 	 * Supports:
-	 *   - "Item_Ammo_Pistol" / "Ammo_Pistol_9mm" -> 9mm Pistol Ammo (stacks up to 50)
+	 *   - "Item_Ammo_Pistol" / "Ammo_Pistol_9mm" -> 9mm Pistol Ammo (stacks up to 100)
 	 *   - "Item_Ammo_Shotgun" / "Ammo_Shotgun_12G" -> 12G Shotgun Shells (stacks up to 20)
 	 *   - "Item_Ammo_Rifle" / "Ammo_Rifle_556" -> 5.56mm Rifle Ammo (stacks up to 60)
 	 *   - "Item_Medkit" / "Medkit" -> Medkit consumable

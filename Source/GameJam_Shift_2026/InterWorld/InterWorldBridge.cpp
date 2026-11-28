@@ -25,7 +25,7 @@ void UInterWorldBridge::ResolveItemMetadata(FName ItemID, FString& OutDisplayNam
 	else if (ItemStr.Contains(TEXT("Pistol"), ESearchCase::IgnoreCase) || ItemStr.Contains(TEXT("9mm"), ESearchCase::IgnoreCase))
 	{
 		OutDisplayName = TEXT("9mm Pistol Ammo");
-		OutMaxStack = 50;
+		OutMaxStack = 100;
 	}
 	else if (ItemStr.Contains(TEXT("Medkit"), ESearchCase::IgnoreCase) || ItemStr.Contains(TEXT("Health"), ESearchCase::IgnoreCase) || ItemStr.Contains(TEXT("Herb"), ESearchCase::IgnoreCase))
 	{

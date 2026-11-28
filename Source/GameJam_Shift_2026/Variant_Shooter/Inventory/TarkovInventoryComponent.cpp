@@ -127,6 +127,35 @@ void UTarkovInventoryComponent::BeginPlay()
 			bHasEquippedWeapon = true;
 		}
 	}
+
+	// Grant starting stacks of 100x 9mm Pistol Ammo in the Tarkov backpack
+	if (StartingPistolAmmoStacks > 0)
+	{
+		int32 AmmoW = 1;
+		int32 AmmoH = 1;
+		UTexture2D* AmmoIcon = nullptr;
+		ResolveItemVisuals(TEXT("9mm Pistol Ammo"), AmmoW, AmmoH, AmmoIcon);
+
+		for (int32 StackIdx = 0; StackIdx < StartingPistolAmmoStacks; ++StackIdx)
+		{
+			int32 FreeX = -1;
+			int32 FreeY = -1;
+			if (FindFreeSpace(AmmoW, AmmoH, FreeX, FreeY))
+			{
+				FInventoryGridItem AmmoStack;
+				AmmoStack.ItemId = FGuid::NewGuid();
+				AmmoStack.ItemName = TEXT("9mm Pistol Ammo");
+				AmmoStack.Width = AmmoW;
+				AmmoStack.Height = AmmoH;
+				AmmoStack.bIsRotated = false;
+				AmmoStack.AmmoCount = 100;
+				AmmoStack.Icon = AmmoIcon;
+				AmmoStack.GridX = FreeX;
+				AmmoStack.GridY = FreeY;
+				BackpackItems.Add(AmmoStack);
+			}
+		}
+	}
 	GetWorld()->GetTimerManager().SetTimerForNextTick(this, &UTarkovInventoryComponent::CreateHUD);
 }
 
