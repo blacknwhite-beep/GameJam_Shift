@@ -356,8 +356,18 @@ public:
 	/** Developer Mode hotkey (+ / =): advances the 24-hour clock by 1 real-time minute equivalent */
 	void DevAdvanceTimeInput();
 
-	/** Cancels active Farm Plot placement preview */
+	/** Cancels active Farm Plot placement preview, or picks up / drops a dead civilian body in Farm on Right Click */
 	void CancelPlotPlacementInput();
+
+	/** Attempts to pick up a looked-at dead civilian body onto the left shoulder (or drop if already carrying one). */
+	bool TryPickupOrDropDeadBody();
+
+	/** Drops any currently carried dead civilian body onto the Farm ground in front of the player. */
+	void DropCarriedBody();
+
+	/** Currently carried dead civilian body slung over the left shoulder in Farm */
+	UPROPERTY()
+	TObjectPtr<class ADeadCivilianBody> CarriedBody;
 
 	/** Handles dimension shift input (Shift key) */
 	UFUNCTION(BlueprintCallable, Category = "Input|Dimension")

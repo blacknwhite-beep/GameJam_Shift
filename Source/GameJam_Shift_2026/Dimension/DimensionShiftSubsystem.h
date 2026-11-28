@@ -250,7 +250,12 @@ public:
 	/** Returns formatted 12-hour string like "6:00 AM" or "12:00 AM". */
 	FString GetFormattedTime12H() const;
 
+	/** Called whenever a zombie is killed in Combat; spawns a dead civilian body in Farm every 2 kills. */
+	void NotifyZombieKilled(UWorld* World, const FVector& CombatDeathLocation);
+
 private:
+	/** Running count of zombie kills used to spawn a dead civilian body in Farm every 2 kills. */
+	int32 ZombieKillsForCivilianBodies = 0;
 	/** Set of unlocked weapon slot indices (Slot 0 = M1911 Classic is unlocked by default). */
 	TSet<int32> UnlockedWeaponSlots;
 	/** Called once the streamed farm level becomes visible. */

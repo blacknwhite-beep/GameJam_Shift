@@ -11,6 +11,7 @@
 #include "Traps/DeployablePlacementComponent.h"
 #include "Farming/FarmBedActor.h"
 #include "Farming/FarmPlotBase.h"
+#include "Farming/DeadCivilianBody.h"
 #include "Components/StaticMeshComponent.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Camera/CameraComponent.h"
@@ -1314,13 +1315,102 @@ void AShooterCharacter::InteractBarnShop()
 
 void AShooterCharacter::CancelPlotPlacementInput()
 {
+	bool bCancelledPlacement = false;
 	if (CurrentDimension == EGameDimension::Farming && FarmingComponent && FarmingComponent->IsPlacingPlot())
 	{
 		FarmingComponent->CancelPlotPlacement();
+		bCancelledPlacement = true;
 	}
 	if (DeployablePlacement && DeployablePlacement->IsPlacing())
 	{
 		DeployablePlacement->CancelPlacement();
+		bCancelledPlacement = true;
+	}
+
+	if (!bCancelledPlacement && (CurrentDimension == EGameDimension::Farming || GetActorLocation().Z < -10000.0f))
+	{
+		TryPickupOrDropDeadBody();
+	}
+}
+
+bool AShooterCharacter::TryPickupOrDropDeadBody()
+{
+	if (CarriedBody)
+	{
+		DropCarriedBody();
+		return true;
+	}
+
+	UWorld* World = GetWorld();
+	UCameraComponent* Camera = GetFirstPersonCameraComponent();
+	if (!World || !Camera)
+	{
+		return false;
+	}
+
+	const FVector Start = Camera->GetComponentLocation();
+	const FVector Dir = Camera->GetForwardVector();
+	const FVector End = Start + Dir * 360.0f;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(PickupDeadBodyTrace), false, this);
+
+	// First try a direct line trace, then fall back to a forgiving 35cm sphere sweep so right-clicking lying bodies feels effortless
+	FHitResult Hit;
+	ADeadCivilianBody* TargetBody = nullptr;
+	if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		TargetBody = Cast<ADeadCivilianBody>(Hit.GetActor());
+	}
+	if (!TargetBody)
+	{
+		FHitResult SweepHit;
+		if (World->SweepSingleByChannel(SweepHit, Start, End, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(38.0f), Params))
+		{
+			TargetBody = Cast<ADeadCivilianBody>(SweepHit.GetActor());
+		}
+	}
+
+	if (!TargetBody || TargetBody->IsCarried())
+	{
+		return false;
+	}
+
+	TargetBody->PickUpToShoulder(Camera);
+	CarriedBody = TargetBody;
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 2.5f, FColor::Silver, TEXT("[BODY] Picked up body onto left shoulder — Right Click to drop"));
+	}
+	return true;
+}
+
+void AShooterCharacter::DropCarriedBody()
+{
+	if (!CarriedBody)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	FVector DropLoc = GetActorLocation() + GetActorForwardVector() * 110.0f;
+	if (World)
+	{
+		FHitResult GroundHit;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(DropDeadBodyTrace), false, this);
+		Params.AddIgnoredActor(CarriedBody);
+		if (World->LineTraceSingleByChannel(GroundHit, DropLoc + FVector(0.0f, 0.0f, 120.0f), DropLoc - FVector(0.0f, 0.0f, 400.0f), ECC_WorldStatic, Params))
+		{
+			DropLoc = GroundHit.ImpactPoint;
+		}
+	}
+
+	CarriedBody->DropToGround(DropLoc, GetActorRotation().Yaw);
+	CarriedBody = nullptr;
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Silver, TEXT("[BODY] Dropped body on the ground"));
 	}
 }
 
@@ -1340,6 +1430,12 @@ void AShooterCharacter::HandleDimensionShift()
 	if (IsDead())
 	{
 		return;
+	}
+
+	// If carrying a dead body in the Farm world, drop it on the farm ground before shifting to Combat
+	if (CarriedBody)
+	{
+		DropCarriedBody();
 	}
 
 	if (GEngine)

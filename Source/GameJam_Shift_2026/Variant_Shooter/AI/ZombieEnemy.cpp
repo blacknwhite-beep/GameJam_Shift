@@ -726,14 +726,15 @@ void AZombieEnemy::Die()
 		return;
 	}
 
-	if (KillGoldReward > 0)
+	if (UGameInstance* GI = GetGameInstance())
 	{
-		if (UGameInstance* GI = GetGameInstance())
+		if (UDimensionShiftSubsystem* Subsystem = GI->GetSubsystem<UDimensionShiftSubsystem>())
 		{
-			if (UDimensionShiftSubsystem* Subsystem = GI->GetSubsystem<UDimensionShiftSubsystem>())
+			if (KillGoldReward > 0)
 			{
 				Subsystem->AddGold(KillGoldReward);
 			}
+			Subsystem->NotifyZombieKilled(GetWorld(), GetActorLocation());
 		}
 	}
 

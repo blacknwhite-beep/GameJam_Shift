@@ -16,6 +16,7 @@
 #include "Farming/BarnShopActor.h"
 #include "Farming/FarmHouseActor.h"
 #include "Farming/FarmBedActor.h"
+#include "Farming/DeadCivilianBody.h"
 #include "Traps/LandmineActor.h"
 #include "Kismet/GameplayStatics.h"
 #include "ShooterCharacter.h"
@@ -1218,4 +1219,66 @@ FString UDimensionShiftSubsystem::GetFormattedTime12H() const
 	int32 Hour12 = Hour24 % 12;
 	if (Hour12 == 0) { Hour12 = 12; }
 	return FString::Printf(TEXT("%d:%02d %s"), Hour12, Minutes, Suffix);
+}
+
+void UDimensionShiftSubsystem::NotifyZombieKilled(UWorld* World, const FVector& CombatDeathLocation)
+{
+	if (!World || !World->IsGameWorld())
+	{
+		return;
+	}
+
+	++ZombieKillsForCivilianBodies;
+	if (ZombieKillsForCivilianBodies % 2 != 0)
+	{
+		return;
+	}
+
+	EnsureFarmLevelLoaded(World);
+
+	const FVector BaseFarmPos = CombatDeathLocation + FarmWorldOffset;
+	FVector SpawnLoc = BaseFarmPos;
+	bool bFoundGround = false;
+
+	FCollisionQueryParams TraceParams(SCENE_QUERY_STAT(DeadCivilianGroundTrace), false);
+
+	// Try up to 6 random offsets around the mirrored kill location to land cleanly on Farm terrain
+	for (int32 Attempt = 0; Attempt < 6; ++Attempt)
+	{
+		const float AngleRad = FMath::FRandRange(0.0f, 2.0f * PI);
+		const float Radius = FMath::FRandRange(140.0f, 440.0f);
+		const FVector CandidateXY(
+			BaseFarmPos.X + FMath::Cos(AngleRad) * Radius,
+			BaseFarmPos.Y + FMath::Sin(AngleRad) * Radius,
+			BaseFarmPos.Z
+		);
+
+		FHitResult GroundHit;
+		const FVector TraceStart(CandidateXY.X, CandidateXY.Y, BaseFarmPos.Z + 600.0f);
+		const FVector TraceEnd(CandidateXY.X, CandidateXY.Y, BaseFarmPos.Z - 1400.0f);
+		if (World->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, ECC_WorldStatic, TraceParams))
+		{
+			SpawnLoc = GroundHit.ImpactPoint;
+			bFoundGround = true;
+			break;
+		}
+	}
+
+	if (!bFoundGround)
+	{
+		FHitResult FallbackHit;
+		if (World->LineTraceSingleByChannel(FallbackHit, BaseFarmPos + FVector(0.0f, 0.0f, 600.0f), BaseFarmPos - FVector(0.0f, 0.0f, 1400.0f), ECC_WorldStatic, TraceParams))
+		{
+			SpawnLoc = FallbackHit.ImpactPoint;
+		}
+	}
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	const FRotator RandomYaw(0.0f, FMath::FRandRange(0.0f, 360.0f), 0.0f);
+	if (ADeadCivilianBody* Body = World->SpawnActor<ADeadCivilianBody>(ADeadCivilianBody::StaticClass(), SpawnLoc, RandomYaw, SpawnParams))
+	{
+		UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned dead civilian body #%d in Farm at %s (from Combat kill at %s)."),
+			ZombieKillsForCivilianBodies / 2, *SpawnLoc.ToString(), *CombatDeathLocation.ToString());
+	}
 }
