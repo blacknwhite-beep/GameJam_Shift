@@ -17,6 +17,7 @@
 #include "Farming/FarmHouseActor.h"
 #include "Farming/FarmBedActor.h"
 #include "Farming/DeadCivilianBody.h"
+#include "Farming/FarmGraveActor.h"
 #include "Traps/LandmineActor.h"
 #include "Kismet/GameplayStatics.h"
 #include "ShooterCharacter.h"
@@ -168,6 +169,24 @@ void UDimensionShiftSubsystem::HandleFarmLevelShown()
 				Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 				World->SpawnActor<AFarmHouseActor>(AFarmHouseActor::StaticClass(), FarmWorldOffset + FVector(-1950.0f, -3150.0f, 0.0f), FRotator::ZeroRotator, Params);
 				UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned AFarmHouseActor beside the Barn."));
+			}
+
+			// Ensure the 6ft grave pit exists behind the back wall of the Red Barn
+			TArray<AActor*> Graves;
+			UGameplayStatics::GetAllActorsOfClass(World, AFarmGraveActor::StaticClass(), Graves);
+			if (Graves.Num() == 0)
+			{
+				FVector GraveLoc = FarmWorldOffset + FVector(-700.0f, -4020.0f, 0.0f);
+				FHitResult GraveGroundHit;
+				FCollisionQueryParams GraveTraceParams(SCENE_QUERY_STAT(GraveGroundTrace), false);
+				if (World->LineTraceSingleByChannel(GraveGroundHit, GraveLoc + FVector(0.0f, 0.0f, 600.0f), GraveLoc - FVector(0.0f, 0.0f, 1200.0f), ECC_WorldStatic, GraveTraceParams))
+				{
+					GraveLoc = GraveGroundHit.ImpactPoint;
+				}
+				FActorSpawnParameters Params;
+				Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+				World->SpawnActor<AFarmGraveActor>(AFarmGraveActor::StaticClass(), GraveLoc, FRotator::ZeroRotator, Params);
+				UE_LOG(LogGameJam_Shift_2026, Log, TEXT("UDimensionShiftSubsystem: Spawned AFarmGraveActor behind the Red Barn at %s."), *GraveLoc.ToString());
 			}
 
 			SyncFarmPlotsToCombat(World);

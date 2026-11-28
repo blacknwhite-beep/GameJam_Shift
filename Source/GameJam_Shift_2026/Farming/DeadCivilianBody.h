@@ -35,6 +35,9 @@ public:
 	/** Detaches the corpse from the player's shoulder and places it back on the ground at DropLocation. */
 	void DropToGround(const FVector& DropLocation, float DropYaw);
 
+	/** Detaches the corpse from the player's shoulder and dumps it permanently into a grave pit. */
+	void DumpIntoGrave(const FVector& GraveDropLocation, float GraveYaw);
+
 	bool IsCarried() const { return bIsCarried; }
 
 protected:
@@ -49,9 +52,6 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Corpse")
 	TObjectPtr<UBoxComponent> PickupBounds;
-
-	UPROPERTY(VisibleAnywhere, Category = "Corpse")
-	TObjectPtr<UStaticMeshComponent> GroundBloodPool;
 
 	/** Saved lying pose index (0..4) so dropping restores a natural dead pose. */
 	int32 LyingPoseIndex = 0;

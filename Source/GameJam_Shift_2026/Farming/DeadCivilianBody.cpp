@@ -338,30 +338,41 @@ void ADeadCivilianBody::SpawnBulletHoleMarkers()
 
 void ADeadCivilianBody::SpawnGroundBloodPool()
 {
+	UWorld* World = GetWorld();
 	UStaticMesh* CylinderMesh = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
 	UMaterialInterface* BaseMat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Dev_Blueprint/Crops/Materials/M_CropBase.M_CropBase"));
-	if (!CylinderMesh || !BaseMat)
+	if (!World || !CylinderMesh || !BaseMat)
 	{
 		return;
 	}
 
-	GroundBloodPool = NewObject<UStaticMeshComponent>(this, TEXT("GroundBloodPool"));
-	GroundBloodPool->SetStaticMesh(CylinderMesh);
-	GroundBloodPool->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	GroundBloodPool->SetCastShadow(false);
-	GroundBloodPool->SetRelativeLocation(FVector(0.0f, 0.0f, 0.8f));
-	GroundBloodPool->SetRelativeRotation(FRotator(0.0f, FMath::FRandRange(0.0f, 360.0f), 0.0f));
-	GroundBloodPool->SetRelativeScale3D(FVector(FMath::FRandRange(0.55f, 0.95f), FMath::FRandRange(0.45f, 0.85f), 0.008f));
+	// Spawn as a standalone world actor so picking up the body leaves the pool of blood behind on the ground!
+	FActorSpawnParameters PoolParams;
+	PoolParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	const FVector PoolLoc = GetActorLocation() + FVector(0.0f, 0.0f, 0.8f);
+	const FRotator PoolRot(0.0f, FMath::FRandRange(0.0f, 360.0f), 0.0f);
 
-	if (UMaterialInstanceDynamic* PoolMID = UMaterialInstanceDynamic::Create(BaseMat, this))
+	AActor* PoolActor = World->SpawnActor<AActor>(AActor::StaticClass(), PoolLoc, PoolRot, PoolParams);
+	if (!PoolActor)
+	{
+		return;
+	}
+
+	UStaticMeshComponent* PoolMesh = NewObject<UStaticMeshComponent>(PoolActor, TEXT("BloodPoolMesh"));
+	PoolMesh->SetStaticMesh(CylinderMesh);
+	PoolMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PoolMesh->SetCastShadow(false);
+	PoolMesh->SetWorldScale3D(FVector(FMath::FRandRange(0.55f, 0.95f), FMath::FRandRange(0.45f, 0.85f), 0.008f));
+
+	if (UMaterialInstanceDynamic* PoolMID = UMaterialInstanceDynamic::Create(BaseMat, PoolActor))
 	{
 		PoolMID->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.20f, 0.005f, 0.005f, 1.0f));
 		PoolMID->SetVectorParameterValue(TEXT("Emissive"), FLinearColor(0.04f, 0.001f, 0.001f, 1.0f));
-		GroundBloodPool->SetMaterial(0, PoolMID);
+		PoolMesh->SetMaterial(0, PoolMID);
 	}
 
-	GroundBloodPool->SetupAttachment(RootScene);
-	GroundBloodPool->RegisterComponent();
+	PoolMesh->RegisterComponent();
+	PoolActor->SetRootComponent(PoolMesh);
 }
 
 void ADeadCivilianBody::PickUpToShoulder(USceneComponent* CameraComponent)
@@ -376,10 +387,6 @@ void ADeadCivilianBody::PickUpToShoulder(USceneComponent* CameraComponent)
 	if (PickupBounds)
 	{
 		PickupBounds->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	}
-	if (GroundBloodPool)
-	{
-		GroundBloodPool->SetVisibility(false);
 	}
 
 	// Slightly slumped limp pose while slung over the player's left shoulder
@@ -426,8 +433,25 @@ void ADeadCivilianBody::DropToGround(const FVector& DropLocation, float DropYaw)
 	{
 		PickupBounds->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	}
-	if (GroundBloodPool)
+}
+
+void ADeadCivilianBody::DumpIntoGrave(const FVector& GraveDropLocation, float GraveYaw)
+{
+	bIsCarried = false;
+
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	SetActorLocation(GraveDropLocation);
+	SetActorRotation(FRotator(0.0f, GraveYaw, 0.0f));
+
+	if (BodyMesh)
 	{
-		GroundBloodPool->SetVisibility(true);
+		BodyMesh->SetCastShadow(true);
+	}
+	ApplyLyingPose(LyingPoseIndex);
+
+	// Keep pickup disabled once dumped into the grave
+	if (PickupBounds)
+	{
+		PickupBounds->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 }

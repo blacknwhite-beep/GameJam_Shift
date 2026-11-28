@@ -365,6 +365,9 @@ public:
 	/** Drops any currently carried dead civilian body onto the Farm ground in front of the player. */
 	void DropCarriedBody();
 
+	/** If carrying a body while near and looking at the grave behind the barn, dumps the body in on Left Click. */
+	bool TryDumpCarriedBodyInGrave();
+
 	/** Currently carried dead civilian body slung over the left shoulder in Farm */
 	UPROPERTY()
 	TObjectPtr<class ADeadCivilianBody> CarriedBody;

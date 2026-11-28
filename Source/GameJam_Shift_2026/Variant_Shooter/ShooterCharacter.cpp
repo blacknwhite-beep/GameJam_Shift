@@ -12,6 +12,7 @@
 #include "Farming/FarmBedActor.h"
 #include "Farming/FarmPlotBase.h"
 #include "Farming/DeadCivilianBody.h"
+#include "Farming/FarmGraveActor.h"
 #include "Components/StaticMeshComponent.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Camera/CameraComponent.h"
@@ -755,9 +756,14 @@ void AShooterCharacter::DoStartFiring()
 		return;
 	}
 
-	// In Farming dimension, route Left Click to plot placement, Barn Shop, or FarmingComponent!
+	// In Farming dimension, route Left Click to grave body dump, plot placement, Barn Shop, or FarmingComponent!
 	if (CurrentDimension == EGameDimension::Farming)
 	{
+		if (CarriedBody && TryDumpCarriedBodyInGrave())
+		{
+			return;
+		}
+
 		if (FarmingComponent && FarmingComponent->IsPlacingPlot())
 		{
 			FarmingComponent->ConfirmPlotPlacement();
@@ -1412,6 +1418,57 @@ void AShooterCharacter::DropCarriedBody()
 	{
 		GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Silver, TEXT("[BODY] Dropped body on the ground"));
 	}
+}
+
+bool AShooterCharacter::TryDumpCarriedBodyInGrave()
+{
+	if (!CarriedBody)
+	{
+		return false;
+	}
+
+	UWorld* World = GetWorld();
+	UCameraComponent* Camera = GetFirstPersonCameraComponent();
+	if (!World || !Camera)
+	{
+		return false;
+	}
+
+	const FVector Start = Camera->GetComponentLocation();
+	const FVector End = Start + Camera->GetForwardVector() * 480.0f;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(DumpBodyGraveTrace), false, this);
+	Params.AddIgnoredActor(CarriedBody);
+
+	AFarmGraveActor* TargetGrave = nullptr;
+	FHitResult Hit;
+	if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		TargetGrave = Cast<AFarmGraveActor>(Hit.GetActor());
+	}
+	if (!TargetGrave)
+	{
+		FHitResult SweepHit;
+		if (World->SweepSingleByChannel(SweepHit, Start, End, FQuat::Identity, ECC_Visibility, FCollisionShape::MakeSphere(45.0f), Params))
+		{
+			TargetGrave = Cast<AFarmGraveActor>(SweepHit.GetActor());
+		}
+	}
+
+	if (!TargetGrave)
+	{
+		return false;
+	}
+
+	// Confirm the player is actually near the grave (within ~480 cm of its center)
+	if (FVector::Dist2D(GetActorLocation(), TargetGrave->GetActorLocation()) > 480.0f)
+	{
+		return false;
+	}
+
+	TargetGrave->DumpBodyIntoGrave(CarriedBody);
+	CarriedBody = nullptr;
+	return true;
 }
 
 void AShooterCharacter::DevAdvanceTimeInput()
