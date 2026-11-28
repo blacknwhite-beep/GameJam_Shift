@@ -193,6 +193,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Inventory")
 	bool FindFreeSpace(int32 W, int32 H, int32& OutX, int32& OutY) const;
 
+	/** Finds free space for (W, H), falling back to rotated (H, W) if needed. */
+	bool FindFreeSpaceWithRotation(int32 W, int32 H, int32& OutX, int32& OutY, bool& OutRotated) const;
+
+	/** Resolves canonical grid dimensions (W x H) and matching UI icon texture for an inventory item by name. */
+	static void ResolveItemVisuals(const FString& ItemName, int32& OutWidth, int32& OutHeight, class UTexture2D*& OutIcon);
+
 	/** Toggles inventory open/closed */
 	/** Creates the bottom-right equipped weapon slot shown during play */
 	void CreateHUD();

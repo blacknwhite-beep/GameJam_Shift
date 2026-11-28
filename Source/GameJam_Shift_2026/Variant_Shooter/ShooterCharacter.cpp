@@ -2044,6 +2044,14 @@ void AShooterCharacter::EquipWeaponByIndex(int32 WeaponIndex)
 		TarkovInventory->EquippedWeaponItem.ItemName = CurrentWeapon->GetWeaponDisplayName();
 		TarkovInventory->EquippedWeaponItem.WeaponClass = CurrentWeapon->GetClass();
 		TarkovInventory->EquippedWeaponItem.AmmoCount = CurrentWeapon->GetBulletCount();
+		int32 WepW = 2;
+		int32 WepH = 1;
+		UTexture2D* WepIcon = nullptr;
+		UTarkovInventoryComponent::ResolveItemVisuals(TarkovInventory->EquippedWeaponItem.ItemName, WepW, WepH, WepIcon);
+		TarkovInventory->EquippedWeaponItem.Width = WepW;
+		TarkovInventory->EquippedWeaponItem.Height = WepH;
+		TarkovInventory->EquippedWeaponItem.bIsRotated = false;
+		TarkovInventory->EquippedWeaponItem.Icon = WepIcon;
 		TarkovInventory->OnInventoryUpdated.Broadcast();
 	}
 }

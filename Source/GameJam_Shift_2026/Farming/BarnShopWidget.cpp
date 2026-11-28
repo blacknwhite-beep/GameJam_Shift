@@ -238,7 +238,7 @@ void UBarnShopWidget::NativeOnInitialized()
 	AddShopRow(WidgetTree, SeedsTabBox, TEXT("Shotgun"), TEXT("Shotgun Corn Seeds"), TEXT("Harvests +16x 12G Shotgun Shells (cycles with [T])"), 150, BtnShotgun, DummyLabel);
 	AddShopRow(WidgetTree, SeedsTabBox, TEXT("Rifle"), TEXT("Rifle Wheat Seeds"), TEXT("Harvests +30x 5.56mm Rifle Ammo (cycles with [T])"), 200, BtnRifle, DummyLabel);
 	AddShopRow(WidgetTree, SeedsTabBox, TEXT("Medkit"), TEXT("Medicinal Herb Seeds"), TEXT("Harvests +1x Combat Medkit (+50 HP on [H])"), 250, BtnMedkit, DummyLabel);
-	AddShopRow(WidgetTree, SeedsTabBox, TEXT("Plot"), TEXT("Expandable Farm Plot"), TEXT("Adds 1x1 Farm Plot to Backpack -> click in Inventory to place!"), 300, BtnPlot, DummyLabel);
+	AddShopRow(WidgetTree, SeedsTabBox, TEXT("Plot"), TEXT("Expandable Farm Plot"), TEXT("Adds 3x2 Farm Plot to Backpack -> click in Inventory to place!"), 300, BtnPlot, DummyLabel);
 
 	if (BtnPistol)  { BtnPistol->OnClicked.AddUniqueDynamic(this, &UBarnShopWidget::OnBuyPistolSeeds); }
 	if (BtnShotgun) { BtnShotgun->OnClicked.AddUniqueDynamic(this, &UBarnShopWidget::OnBuyShotgunSeeds); }
@@ -306,7 +306,7 @@ void UBarnShopWidget::NativeOnInitialized()
 		TrapsTabBox,
 		TEXT("Landmine"),
 		TEXT("Proximity Landmine"),
-		TEXT("Place in Farm or Combat. Farm placements mirror into the Zombie world."),
+		TEXT("2x2 Trap — Place in Farm or Combat. Farm placements mirror into the Zombie world."),
 		500,
 		BtnLandmine,
 		LandmineLabel
@@ -559,6 +559,14 @@ void UBarnShopWidget::TryBuyOrEquipGun(int32 WeaponSlotIndex, const FString& Dis
 				Inv->EquippedWeaponItem.ItemName = Weapons[WeaponSlotIndex]->GetWeaponDisplayName();
 				Inv->EquippedWeaponItem.WeaponClass = Weapons[WeaponSlotIndex]->GetClass();
 				Inv->EquippedWeaponItem.AmmoCount = Weapons[WeaponSlotIndex]->GetBulletCount();
+				int32 WepW = 2;
+				int32 WepH = 1;
+				UTexture2D* WepIcon = nullptr;
+				UTarkovInventoryComponent::ResolveItemVisuals(Inv->EquippedWeaponItem.ItemName, WepW, WepH, WepIcon);
+				Inv->EquippedWeaponItem.Width = WepW;
+				Inv->EquippedWeaponItem.Height = WepH;
+				Inv->EquippedWeaponItem.bIsRotated = false;
+				Inv->EquippedWeaponItem.Icon = WepIcon;
 				Inv->OnInventoryUpdated.Broadcast();
 			}
 		}
@@ -597,11 +605,17 @@ void UBarnShopWidget::OnBuyFarmPlot()
 		return;
 	}
 
+	int32 PlotW = 3;
+	int32 PlotH = 2;
+	UTexture2D* PlotIcon = nullptr;
+	UTarkovInventoryComponent::ResolveItemVisuals(TEXT("Farm Plot"), PlotW, PlotH, PlotIcon);
+
 	int32 TargetX = -1;
 	int32 TargetY = -1;
-	if (!Inv->FindFreeSpace(1, 1, TargetX, TargetY))
+	bool bRotated = false;
+	if (!Inv->FindFreeSpaceWithRotation(PlotW, PlotH, TargetX, TargetY, bRotated))
 	{
-		SetStatus(TEXT("Tarkov Backpack is full! Make room before buying a Farm Plot."), FLinearColor(1.0f, 0.35f, 0.30f, 1.0f));
+		SetStatus(TEXT("Need 3x2 free space in Tarkov Backpack to buy a Farm Plot!"), FLinearColor(1.0f, 0.35f, 0.30f, 1.0f));
 		return;
 	}
 
@@ -614,8 +628,10 @@ void UBarnShopWidget::OnBuyFarmPlot()
 	FInventoryGridItem PlotItem;
 	PlotItem.ItemId = FGuid::NewGuid();
 	PlotItem.ItemName = TEXT("Farm Plot");
-	PlotItem.Width = 1;
-	PlotItem.Height = 1;
+	PlotItem.Width = bRotated ? PlotH : PlotW;
+	PlotItem.Height = bRotated ? PlotW : PlotH;
+	PlotItem.bIsRotated = bRotated;
+	PlotItem.Icon = PlotIcon;
 	PlotItem.AmmoCount = 1;
 	PlotItem.GridX = TargetX;
 	PlotItem.GridY = TargetY;
@@ -640,11 +656,16 @@ void UBarnShopWidget::OnBuyLandmine()
 		return;
 	}
 
+	int32 MineW = 2;
+	int32 MineH = 2;
+	UTexture2D* MineIcon = nullptr;
+	UTarkovInventoryComponent::ResolveItemVisuals(TEXT("Landmine"), MineW, MineH, MineIcon);
+
 	int32 TargetX = -1;
 	int32 TargetY = -1;
-	if (!Inv->FindFreeSpace(1, 1, TargetX, TargetY))
+	if (!Inv->FindFreeSpace(MineW, MineH, TargetX, TargetY))
 	{
-		SetStatus(TEXT("Tarkov Backpack is full! Make room before buying a Landmine."), FLinearColor(1.0f, 0.35f, 0.30f, 1.0f));
+		SetStatus(TEXT("Need 2x2 free space in Tarkov Backpack to buy a Landmine!"), FLinearColor(1.0f, 0.35f, 0.30f, 1.0f));
 		return;
 	}
 
@@ -658,8 +679,10 @@ void UBarnShopWidget::OnBuyLandmine()
 	FInventoryGridItem MineItem;
 	MineItem.ItemId = FGuid::NewGuid();
 	MineItem.ItemName = TEXT("Landmine");
-	MineItem.Width = 1;
-	MineItem.Height = 1;
+	MineItem.Width = MineW;
+	MineItem.Height = MineH;
+	MineItem.bIsRotated = false;
+	MineItem.Icon = MineIcon;
 	MineItem.AmmoCount = 1;
 	MineItem.GridX = TargetX;
 	MineItem.GridY = TargetY;

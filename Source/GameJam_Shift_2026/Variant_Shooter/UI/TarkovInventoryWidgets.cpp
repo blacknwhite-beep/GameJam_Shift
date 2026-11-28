@@ -11,13 +11,54 @@
 #include "Components/Border.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/Image.h"
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
+#include "Engine/Texture2D.h"
 #include "Blueprint/WidgetTree.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
+
+namespace
+{
+	FLinearColor GetTarkovCardColorForItem(const FInventoryGridItem& Item)
+	{
+		if (Item.ItemName.Contains(TEXT("Farm Plot"), ESearchCase::IgnoreCase))
+		{
+			return FLinearColor(0.14f, 0.24f, 0.14f, 0.96f); // Earthy farm green
+		}
+		if (Item.ItemName.Contains(TEXT("Landmine"), ESearchCase::IgnoreCase))
+		{
+			return FLinearColor(0.24f, 0.21f, 0.12f, 0.96f); // Tactical hazard olive
+		}
+		if (Item.ItemName.Contains(TEXT("Medkit"), ESearchCase::IgnoreCase))
+		{
+			return FLinearColor(0.28f, 0.12f, 0.13f, 0.96f); // Medical crimson-dark
+		}
+		if (Item.ItemName.Contains(TEXT("Ammo"), ESearchCase::IgnoreCase) || Item.ItemName.Contains(TEXT("Shell"), ESearchCase::IgnoreCase))
+		{
+			return FLinearColor(0.22f, 0.19f, 0.13f, 0.96f); // Warm brass-dark
+		}
+		if (Item.WeaponClass != nullptr)
+		{
+			return FLinearColor(0.16f, 0.20f, 0.24f, 0.96f); // Gunmetal steel-dark
+		}
+		return FLinearColor(0.20f, 0.22f, 0.18f, 0.96f);
+	}
+
+	FString GetCompactTileLabel(const FString& ItemName)
+	{
+		if (ItemName.Contains(TEXT("9mm"), ESearchCase::IgnoreCase)) { return TEXT("9mm"); }
+		if (ItemName.Contains(TEXT("12G"), ESearchCase::IgnoreCase) || ItemName.Contains(TEXT("Shotgun"), ESearchCase::IgnoreCase)) { return TEXT("12G"); }
+		if (ItemName.Contains(TEXT("5.56"), ESearchCase::IgnoreCase)) { return TEXT("5.56"); }
+		if (ItemName.Contains(TEXT("Medkit"), ESearchCase::IgnoreCase)) { return TEXT("MEDKIT"); }
+		if (ItemName.Contains(TEXT("Landmine"), ESearchCase::IgnoreCase)) { return TEXT("LANDMINE"); }
+		if (ItemName.Contains(TEXT("Farm Plot"), ESearchCase::IgnoreCase)) { return TEXT("FARM PLOT"); }
+		return ItemName.ToUpper();
+	}
+}
 
 // ============================================================================
 // UTarkovInventoryItemWidget (20x20px item widget)
@@ -33,56 +74,60 @@ void UTarkovInventoryItemWidget::NativeOnMouseEnter(const FGeometry& InGeometry,
 {
 	Super::NativeOnMouseEnter(InGeometry, InMouseEvent);
 	SetFocus();
+
+	if (UTarkovInventoryMainWidget* MainWidget = GetTypedOuter<UTarkovInventoryMainWidget>())
+	{
+		MainWidget->SetHoveredItem(ItemId);
+	}
 }
 
 void UTarkovInventoryItemWidget::NativeOnMouseLeave(const FPointerEvent& InMouseEvent)
 {
 	Super::NativeOnMouseLeave(InMouseEvent);
+
+	if (UTarkovInventoryMainWidget* MainWidget = GetTypedOuter<UTarkovInventoryMainWidget>())
+	{
+		MainWidget->ClearHoveredItem(ItemId);
+	}
 }
 
 FReply UTarkovInventoryItemWidget::NativeOnMouseButtonDown(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
 	if (InMouseEvent.GetEffectingButton() == EKeys::LeftMouseButton)
 	{
-		const FString LabelStr = ItemLabel ? ItemLabel->GetText().ToString() : FString();
-		if (LabelStr.Contains(TEXT("Farm Plot"), ESearchCase::IgnoreCase))
-		{
-			if (APawn* Pawn = GetOwningPlayerPawn())
-			{
-				if (Pawn->GetActorLocation().Z < -10000.0f)
-				{
-					if (UTarkovInventoryComponent* Comp = Pawn->FindComponentByClass<UTarkovInventoryComponent>())
-					{
-						if (Comp->IsInventoryOpen())
-						{
-							Comp->ToggleInventory();
-						}
-					}
-					if (UFarmingComponent* FarmComp = Pawn->FindComponentByClass<UFarmingComponent>())
-					{
-						if (UDeployablePlacementComponent* Placement = Pawn->FindComponentByClass<UDeployablePlacementComponent>())
-						{
-							Placement->CancelPlacement();
-						}
-						FarmComp->StartPlotPlacement(ItemId);
-						return FReply::Handled();
-					}
-				}
-				else if (GEngine)
-				{
-					GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Orange, TEXT("[FARM] Shift to the Farm world [Left Shift] to place your Farm Plot!"));
-				}
-			}
-		}
-
-		// Generic data-driven deployables (Landmine, future traps). Resolve by GUID
-		// instead of display text so renaming an item cannot break placement.
 		if (APawn* Pawn = GetOwningPlayerPawn())
 		{
 			if (UTarkovInventoryComponent* Comp = Pawn->FindComponentByClass<UTarkovInventoryComponent>())
 			{
 				const FInventoryGridItem* ClickedItem = Comp->GetBackpackItems().FindByPredicate(
 					[this](const FInventoryGridItem& Item) { return Item.ItemId == ItemId; });
+
+				if (ClickedItem && ClickedItem->ItemName.Contains(TEXT("Farm Plot"), ESearchCase::IgnoreCase))
+				{
+					if (Pawn->GetActorLocation().Z < -10000.0f)
+					{
+						if (Comp->IsInventoryOpen())
+						{
+							Comp->ToggleInventory();
+						}
+						if (UFarmingComponent* FarmComp = Pawn->FindComponentByClass<UFarmingComponent>())
+						{
+							if (UDeployablePlacementComponent* Placement = Pawn->FindComponentByClass<UDeployablePlacementComponent>())
+							{
+								Placement->CancelPlacement();
+							}
+							FarmComp->StartPlotPlacement(ItemId);
+							return FReply::Handled();
+						}
+					}
+					else if (GEngine)
+					{
+						GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Orange, TEXT("[FARM] Shift to the Farm world [Left Shift] to place your Farm Plot!"));
+					}
+				}
+
+				// Generic data-driven deployables (Landmine, future traps). Resolve by GUID
+				// instead of display text so renaming an item cannot break placement.
 				if (ClickedItem && ClickedItem->PlaceableClass)
 				{
 					const TSubclassOf<AActor> PlaceableClass = ClickedItem->PlaceableClass;
@@ -427,25 +472,41 @@ void UTarkovEquippedSlotWidget::NativeOnInitialized()
 		SlotFill->SetBrushColor(FLinearColor(0.102f, 0.114f, 0.125f, 0.95f));
 		Root->AddChildToOverlay(SlotFill);
 
+		SlotIconBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("SlotIconBox"));
+		SlotIconBox->SetWidthOverride(168.0f);
+		SlotIconBox->SetHeightOverride(76.0f);
+		UOverlaySlot* IconBoxSlot = Root->AddChildToOverlay(SlotIconBox);
+		IconBoxSlot->SetHorizontalAlignment(HAlign_Center);
+		IconBoxSlot->SetVerticalAlignment(VAlign_Center);
+		IconBoxSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 8.0f));
+
+		SlotIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("SlotIcon"));
+		SlotIcon->SetVisibility(ESlateVisibility::Collapsed);
+		SlotIconBox->SetContent(SlotIcon);
+
 		SlotHeader = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SlotHeader"));
 		SlotHeader->SetText(NSLOCTEXT("TarkovInventory", "EquippedLabel", "EQUIPPED"));
 		SlotHeader->SetColorAndOpacity(FSlateColor(FLinearColor(0.7f, 0.7f, 0.7f, 1.0f)));
 		SlotHeader->SetJustification(ETextJustify::Center);
+		FSlateFontInfo HeaderFont = SlotHeader->GetFont();
+		HeaderFont.Size = 9;
+		SlotHeader->SetFont(HeaderFont);
 		UOverlaySlot* HeaderSlot = Root->AddChildToOverlay(SlotHeader);
 		HeaderSlot->SetHorizontalAlignment(HAlign_Center);
 		HeaderSlot->SetVerticalAlignment(VAlign_Top);
-		HeaderSlot->SetPadding(FMargin(0.0f, 6.0f, 0.0f, 0.0f));
+		HeaderSlot->SetPadding(FMargin(0.0f, 4.0f, 0.0f, 0.0f));
 
 		SlotContent = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("SlotContent"));
 		SlotContent->SetText(NSLOCTEXT("TarkovInventory", "EquippedEmpty", "EMPTY"));
 		SlotContent->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.95f, 0.9f, 1.0f)));
 		SlotContent->SetJustification(ETextJustify::Center);
 		FSlateFontInfo ContentFont = SlotContent->GetFont();
-		ContentFont.Size = 12;
+		ContentFont.Size = 11;
 		SlotContent->SetFont(ContentFont);
 		UOverlaySlot* ContentSlot = Root->AddChildToOverlay(SlotContent);
 		ContentSlot->SetHorizontalAlignment(HAlign_Center);
-		ContentSlot->SetVerticalAlignment(VAlign_Center);
+		ContentSlot->SetVerticalAlignment(VAlign_Bottom);
+		ContentSlot->SetPadding(FMargin(4.0f, 0.0f, 4.0f, 6.0f));
 	}
 }
 
@@ -484,8 +545,8 @@ void UTarkovEquippedSlotWidget::NativeOnDragDetected(const FGeometry& InGeometry
 	UTarkovItemDragDropOp* DragOp = NewObject<UTarkovItemDragDropOp>(this);
 	DragOp->ItemId = Comp->EquippedWeaponItem.ItemId;
 	DragOp->SourceSlot = ETarkovSlotSource::EquippedSlot;
-	DragOp->Width = 1;
-	DragOp->Height = 1;
+	DragOp->Width = FMath::Max(1, Comp->EquippedWeaponItem.Width);
+	DragOp->Height = FMath::Max(1, Comp->EquippedWeaponItem.Height);
 	DragOp->DefaultDragVisual = this;
 	DragOp->Pivot = EDragPivot::CenterCenter;
 
@@ -690,16 +751,42 @@ void UTarkovEquippedSlotWidget::RefreshFromInventory()
 
 	const bool bEquipped = Comp && Comp->bHasEquippedWeapon;
 	const FString Shown = bEquipped ? Comp->EquippedWeaponItem.ItemName.ToUpper() : FString(TEXT("EMPTY"));
-	if (Shown == LastShown)
+	UTexture2D* IconTex = bEquipped ? Comp->EquippedWeaponItem.Icon.Get() : nullptr;
+	if (bEquipped && !IconTex)
+	{
+		int32 DummyW = 2;
+		int32 DummyH = 1;
+		UTarkovInventoryComponent::ResolveItemVisuals(Comp->EquippedWeaponItem.ItemName, DummyW, DummyH, IconTex);
+		Comp->EquippedWeaponItem.Icon = IconTex;
+	}
+
+	if (Shown == LastShown && IconTex == LastShownIcon)
 	{
 		return;
 	}
 	LastShown = Shown;
+	LastShownIcon = IconTex;
 
 	SlotContent->SetText(FText::FromString(Shown));
 	if (SlotFill)
 	{
-		SlotFill->SetBrushColor(bEquipped ? FLinearColor(0.30f, 0.33f, 0.22f, 1.0f) : FLinearColor(0.102f, 0.114f, 0.125f, 0.95f));
+		SlotFill->SetBrushColor(bEquipped ? FLinearColor(0.16f, 0.20f, 0.24f, 0.98f) : FLinearColor(0.102f, 0.114f, 0.125f, 0.95f));
+	}
+	if (SlotIcon)
+	{
+		if (bEquipped && IconTex)
+		{
+			FSlateBrush IconBrush;
+			IconBrush.SetResourceObject(IconTex);
+			IconBrush.ImageSize = FVector2D(IconTex->GetSizeX(), IconTex->GetSizeY());
+			IconBrush.DrawAs = ESlateBrushDrawType::Image;
+			SlotIcon->SetBrush(IconBrush);
+			SlotIcon->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		}
+		else
+		{
+			SlotIcon->SetVisibility(ESlateVisibility::Collapsed);
+		}
 	}
 }
 
@@ -716,18 +803,47 @@ void UTarkovInventoryItemWidget::NativeOnInitialized()
 		WidgetTree->RootWidget = Root;
 
 		ItemFill = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ItemFill"));
-		ItemFill->SetBrushColor(FLinearColor(0.30f, 0.33f, 0.22f, 1.0f));
-		Root->AddChildToOverlay(ItemFill);
+		ItemFill->SetBrushColor(FLinearColor(0.20f, 0.22f, 0.18f, 0.96f));
+		UOverlaySlot* FillSlot = Root->AddChildToOverlay(ItemFill);
+		FillSlot->SetHorizontalAlignment(HAlign_Fill);
+		FillSlot->SetVerticalAlignment(VAlign_Fill);
+
+		IconSizeBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("IconSizeBox"));
+		IconSizeBox->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+		UOverlaySlot* IconSlot = Root->AddChildToOverlay(IconSizeBox);
+		IconSlot->SetHorizontalAlignment(HAlign_Center);
+		IconSlot->SetVerticalAlignment(VAlign_Center);
+
+		ItemIcon = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("ItemIcon"));
+		ItemIcon->SetVisibility(ESlateVisibility::Collapsed);
+		IconSizeBox->SetContent(ItemIcon);
 
 		ItemLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ItemLabel"));
-		ItemLabel->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.95f, 0.9f, 1.0f)));
-		ItemLabel->SetJustification(ETextJustify::Center);
+		ItemLabel->SetColorAndOpacity(FSlateColor(FLinearColor(0.95f, 0.95f, 0.92f, 0.95f)));
+		ItemLabel->SetShadowOffset(FVector2D(1.0f, 1.0f));
+		ItemLabel->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.85f));
+		ItemLabel->SetJustification(ETextJustify::Left);
 		FSlateFontInfo LabelFont = ItemLabel->GetFont();
-		LabelFont.Size = 9;
+		LabelFont.Size = 8;
 		ItemLabel->SetFont(LabelFont);
 		UOverlaySlot* LabelSlot = Root->AddChildToOverlay(ItemLabel);
-		LabelSlot->SetHorizontalAlignment(HAlign_Center);
-		LabelSlot->SetVerticalAlignment(VAlign_Center);
+		LabelSlot->SetHorizontalAlignment(HAlign_Left);
+		LabelSlot->SetVerticalAlignment(VAlign_Top);
+		LabelSlot->SetPadding(FMargin(3.0f, 2.0f, 3.0f, 0.0f));
+
+		StackCountLabel = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StackCountLabel"));
+		StackCountLabel->SetColorAndOpacity(FSlateColor(FLinearColor(1.0f, 0.92f, 0.45f, 1.0f)));
+		StackCountLabel->SetShadowOffset(FVector2D(1.0f, 1.0f));
+		StackCountLabel->SetShadowColorAndOpacity(FLinearColor(0.0f, 0.0f, 0.0f, 0.9f));
+		StackCountLabel->SetJustification(ETextJustify::Right);
+		FSlateFontInfo CountFont = StackCountLabel->GetFont();
+		CountFont.Size = 9;
+		StackCountLabel->SetFont(CountFont);
+		StackCountLabel->SetVisibility(ESlateVisibility::Collapsed);
+		UOverlaySlot* CountSlot = Root->AddChildToOverlay(StackCountLabel);
+		CountSlot->SetHorizontalAlignment(HAlign_Right);
+		CountSlot->SetVerticalAlignment(VAlign_Bottom);
+		CountSlot->SetPadding(FMargin(0.0f, 0.0f, 4.0f, 2.0f));
 	}
 }
 
@@ -736,6 +852,74 @@ void UTarkovInventoryItemWidget::SetDisplayName(const FString& Name)
 	if (ItemLabel)
 	{
 		ItemLabel->SetText(FText::FromString(Name.ToUpper()));
+	}
+}
+
+void UTarkovInventoryItemWidget::ConfigureItemVisuals(const FInventoryGridItem& Item)
+{
+	bIsRotated = Item.bIsRotated;
+
+	if (ItemFill)
+	{
+		ItemFill->SetBrushColor(GetTarkovCardColorForItem(Item));
+	}
+
+	UTexture2D* IconTex = Item.Icon.Get();
+	if (!IconTex)
+	{
+		int32 DummyW = Item.Width;
+		int32 DummyH = Item.Height;
+		UTarkovInventoryComponent::ResolveItemVisuals(Item.ItemName, DummyW, DummyH, IconTex);
+	}
+
+	if (ItemIcon && IconSizeBox)
+	{
+		if (IconTex)
+		{
+			if (CachedIcon != IconTex)
+			{
+				CachedIcon = IconTex;
+				FSlateBrush IconBrush;
+				IconBrush.SetResourceObject(IconTex);
+				IconBrush.ImageSize = FVector2D(IconTex->GetSizeX(), IconTex->GetSizeY());
+				IconBrush.DrawAs = ESlateBrushDrawType::Image;
+				ItemIcon->SetBrush(IconBrush);
+			}
+
+			// Size the unrotated icon box to the item's native (unrotated) cell dimensions,
+			// then rotate by 90 degrees around its center when bIsRotated is true.
+			const float CellPx = UTarkovBackpackGridWidget::DisplayCellSize;
+			const int32 NativeCellsW = Item.bIsRotated ? Item.Height : Item.Width;
+			const int32 NativeCellsH = Item.bIsRotated ? Item.Width : Item.Height;
+			const float Pad = 8.0f;
+			IconSizeBox->SetWidthOverride(FMath::Max(16.0f, NativeCellsW * CellPx - Pad));
+			IconSizeBox->SetHeightOverride(FMath::Max(16.0f, NativeCellsH * CellPx - Pad));
+			IconSizeBox->SetRenderTransformAngle(Item.bIsRotated ? 90.0f : 0.0f);
+			ItemIcon->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		}
+		else
+		{
+			CachedIcon = nullptr;
+			ItemIcon->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+
+	if (ItemLabel)
+	{
+		ItemLabel->SetText(FText::FromString(GetCompactTileLabel(Item.ItemName)));
+	}
+
+	if (StackCountLabel)
+	{
+		if (Item.WeaponClass == nullptr && Item.AmmoCount > 1)
+		{
+			StackCountLabel->SetText(FText::FromString(FString::Printf(TEXT("x%d"), Item.AmmoCount)));
+			StackCountLabel->SetVisibility(ESlateVisibility::SelfHitTestInvisible);
+		}
+		else
+		{
+			StackCountLabel->SetVisibility(ESlateVisibility::Collapsed);
+		}
 	}
 }
 
@@ -806,15 +990,11 @@ void UTarkovBackpackGridWidget::SyncItemWidgets()
 			ItemWidgets.Add(Widget);
 		}
 
-		const FString DisplayWithCount = (Item.WeaponClass == nullptr && Item.AmmoCount > 1)
-			? FString::Printf(TEXT("%s (x%d)"), *Item.ItemName, Item.AmmoCount)
-			: Item.ItemName;
-		Widget->SetDisplayName(DisplayWithCount);
-
 		Widget->GridX = Item.GridX;
 		Widget->GridY = Item.GridY;
 		Widget->CellWidth = Item.Width;
 		Widget->CellHeight = Item.Height;
+		Widget->ConfigureItemVisuals(Item);
 		if (UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Widget->Slot))
 		{
 			CanvasSlot->SetPosition(FVector2D(Item.GridX * DisplayCellSize + CellInset, Item.GridY * DisplayCellSize + CellInset));

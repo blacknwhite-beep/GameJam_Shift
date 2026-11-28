@@ -19,6 +19,8 @@ class UOverlaySlot;
 class USizeBox;
 class UWidgetTree;
 class USoundBase;
+class UTexture2D;
+struct FInventoryGridItem;
 
 /**
  * Source slot type for inventory drag-and-drop operations.
@@ -98,6 +100,9 @@ public:
 	UPROPERTY(BlueprintReadWrite, Category = "Tarkov|Item")
 	int32 CellHeight = 1;
 
+	UPROPERTY(BlueprintReadWrite, Category = "Tarkov|Item")
+	bool bIsRotated = false;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Tarkov|Audio")
 	TObjectPtr<USoundBase> PickupSound;
 
@@ -108,10 +113,25 @@ public:
 	TObjectPtr<UBorder> ItemFill;
 
 	UPROPERTY()
+	TObjectPtr<USizeBox> IconSizeBox;
+
+	UPROPERTY()
+	TObjectPtr<UImage> ItemIcon;
+
+	UPROPERTY()
 	TObjectPtr<UTextBlock> ItemLabel;
+
+	UPROPERTY()
+	TObjectPtr<UTextBlock> StackCountLabel;
+
+	UPROPERTY()
+	TObjectPtr<UTexture2D> CachedIcon;
 
 	/** Shows the item name on the block */
 	void SetDisplayName(const FString& Name);
+
+	/** Updates icon, tint, rotation, label, and stack count from the inventory item */
+	void ConfigureItemVisuals(const FInventoryGridItem& Item);
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -233,12 +253,21 @@ public:
 	TObjectPtr<UBorder> SlotFill;
 
 	UPROPERTY()
+	TObjectPtr<USizeBox> SlotIconBox;
+
+	UPROPERTY()
+	TObjectPtr<UImage> SlotIcon;
+
+	UPROPERTY()
 	TObjectPtr<UTextBlock> SlotHeader;
 
 	UPROPERTY()
 	TObjectPtr<UTextBlock> SlotContent;
 
 	FString LastShown;
+
+	UPROPERTY()
+	TObjectPtr<UTexture2D> LastShownIcon;
 
 	/** Updates the slot from the owner's inventory component */
 	void RefreshFromInventory();

@@ -5,6 +5,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "../UI/TarkovInventoryWidgets.h"
 #include "Engine/World.h"
+#include "Engine/Texture2D.h"
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
 #include "TimerManager.h"
@@ -12,6 +13,84 @@
 #include "Blueprint/UserWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerController.h"
+
+void UTarkovInventoryComponent::ResolveItemVisuals(const FString& ItemName, int32& OutWidth, int32& OutHeight, UTexture2D*& OutIcon)
+{
+	OutWidth = 1;
+	OutHeight = 1;
+	const TCHAR* AssetPath = nullptr;
+
+	// Ammo (small 1x1 so backpack holds plenty of ammo)
+	if (ItemName.Contains(TEXT("9mm"), ESearchCase::IgnoreCase) || ItemName.Contains(TEXT("Pistol Ammo"), ESearchCase::IgnoreCase))
+	{
+		OutWidth = 1;
+		OutHeight = 1;
+		AssetPath = TEXT("/Game/Dev_Blueprint/UI/Icons/T_Icon_Ammo_9mm.T_Icon_Ammo_9mm");
+	}
+	else if (ItemName.Contains(TEXT("12G"), ESearchCase::IgnoreCase) || ItemName.Contains(TEXT("Shotgun"), ESearchCase::IgnoreCase))
+	{
+		OutWidth = 1;
+		OutHeight = 1;
+		AssetPath = TEXT("/Game/Dev_Blueprint/UI/Icons/T_Icon_Ammo_12G.T_Icon_Ammo_12G");
+	}
+	else if (ItemName.Contains(TEXT("5.56"), ESearchCase::IgnoreCase) || ItemName.Contains(TEXT("Rifle Ammo"), ESearchCase::IgnoreCase))
+	{
+		OutWidth = 1;
+		OutHeight = 1;
+		AssetPath = TEXT("/Game/Dev_Blueprint/UI/Icons/T_Icon_Ammo_556.T_Icon_Ammo_556");
+	}
+	// Medkit (compact 1x2 tactical IFAK, rotatable with R)
+	else if (ItemName.Contains(TEXT("Medkit"), ESearchCase::IgnoreCase) || ItemName.Contains(TEXT("Herb"), ESearchCase::IgnoreCase))
+	{
+		OutWidth = 1;
+		OutHeight = 2;
+		AssetPath = TEXT("/Game/Dev_Blueprint/UI/Icons/T_Icon_Medkit.T_Icon_Medkit");
+	}
+	// Landmine (medium-sized 2x2)
+	else if (ItemName.Contains(TEXT("Landmine"), ESearchCase::IgnoreCase) || ItemName.Contains(TEXT("Mine"), ESearchCase::IgnoreCase))
+	{
+		OutWidth = 2;
+		OutHeight = 2;
+		AssetPath = TEXT("/Game/Dev_Blueprint/UI/Icons/T_Icon_Landmine.T_Icon_Landmine");
+	}
+	// Farm Plot (biggest item in inventory: 3x2, rotatable with R)
+	else if (ItemName.Contains(TEXT("Farm Plot"), ESearchCase::IgnoreCase) || ItemName.Contains(TEXT("Plot"), ESearchCase::IgnoreCase))
+	{
+		OutWidth = 3;
+		OutHeight = 2;
+		AssetPath = TEXT("/Game/Dev_Blueprint/UI/Icons/T_Icon_FarmPlot.T_Icon_FarmPlot");
+	}
+	// Rifles (3x1)
+	else if (ItemName.Contains(TEXT("M4A1"), ESearchCase::IgnoreCase)
+		|| ItemName.Contains(TEXT("M16"), ESearchCase::IgnoreCase)
+		|| ItemName.Contains(TEXT("SCAR"), ESearchCase::IgnoreCase)
+		|| ItemName.Contains(TEXT("Rifle"), ESearchCase::IgnoreCase)
+		|| ItemName.Contains(TEXT("Carbine"), ESearchCase::IgnoreCase))
+	{
+		OutWidth = 3;
+		OutHeight = 1;
+		AssetPath = TEXT("/Game/Dev_Blueprint/UI/Icons/T_Icon_Weapon_Rifle.T_Icon_Weapon_Rifle");
+	}
+	// SMGs (2x1)
+	else if (ItemName.Contains(TEXT("MP5"), ESearchCase::IgnoreCase)
+		|| ItemName.Contains(TEXT("MP7"), ESearchCase::IgnoreCase)
+		|| ItemName.Contains(TEXT("SMG"), ESearchCase::IgnoreCase)
+		|| ItemName.Contains(TEXT("PDW"), ESearchCase::IgnoreCase))
+	{
+		OutWidth = 2;
+		OutHeight = 1;
+		AssetPath = TEXT("/Game/Dev_Blueprint/UI/Icons/T_Icon_Weapon_SMG.T_Icon_Weapon_SMG");
+	}
+	// Pistols (2x1)
+	else if (ItemName.Contains(TEXT("Pistol"), ESearchCase::IgnoreCase) || ItemName.Contains(TEXT("M1911"), ESearchCase::IgnoreCase))
+	{
+		OutWidth = 2;
+		OutHeight = 1;
+		AssetPath = TEXT("/Game/Dev_Blueprint/UI/Icons/T_Icon_Weapon_Pistol.T_Icon_Weapon_Pistol");
+	}
+
+	OutIcon = AssetPath ? LoadObject<UTexture2D>(nullptr, AssetPath) : nullptr;
+}
 
 UTarkovInventoryComponent::UTarkovInventoryComponent()
 {
@@ -36,8 +115,14 @@ void UTarkovInventoryComponent::BeginPlay()
 			EquippedWeaponItem.ItemId = FGuid::NewGuid();
 			EquippedWeaponItem.ItemName = TEXT("Pistol");
 			EquippedWeaponItem.WeaponClass = ShooterChar->GetInitialWeaponClass();
-			EquippedWeaponItem.Width = 1;  // 1x1 cell = 20x20 pixels
-			EquippedWeaponItem.Height = 1;
+			int32 W = 2;
+			int32 H = 1;
+			UTexture2D* IconTex = nullptr;
+			ResolveItemVisuals(EquippedWeaponItem.ItemName, W, H, IconTex);
+			EquippedWeaponItem.Width = W;
+			EquippedWeaponItem.Height = H;
+			EquippedWeaponItem.bIsRotated = false;
+			EquippedWeaponItem.Icon = IconTex;
 			EquippedWeaponItem.AmmoCount = 10;
 			bHasEquippedWeapon = true;
 		}
@@ -84,6 +169,15 @@ bool UTarkovInventoryComponent::AddItemAt(FInventoryGridItem& Item, int32 X, int
 	if (!Item.ItemId.IsValid())
 	{
 		Item.ItemId = FGuid::NewGuid();
+	}
+
+	if (!Item.Icon)
+	{
+		int32 ResolvedW = Item.Width;
+		int32 ResolvedH = Item.Height;
+		UTexture2D* ResolvedIcon = nullptr;
+		ResolveItemVisuals(Item.ItemName, ResolvedW, ResolvedH, ResolvedIcon);
+		Item.Icon = ResolvedIcon;
 	}
 
 	Item.GridX = X;
@@ -203,7 +297,7 @@ bool UTarkovInventoryComponent::EquipItemFromBackpack(FGuid ItemId)
 		return false;
 	}
 
-	// If a weapon is already equipped, swap it into the backpack at ItemToEquip's position
+	// If a weapon is already equipped, swap it into the backpack
 	if (bHasEquippedWeapon)
 	{
 		if (AShooterWeapon* ActiveWep = ShooterChar->GetCurrentWeapon())
@@ -211,11 +305,37 @@ bool UTarkovInventoryComponent::EquipItemFromBackpack(FGuid ItemId)
 			EquippedWeaponItem.AmmoCount = ActiveWep->GetBulletCount();
 		}
 		FInventoryGridItem OldEquipped = EquippedWeaponItem;
-		OldEquipped.GridX = ItemToEquip.GridX;
-		OldEquipped.GridY = ItemToEquip.GridY;
-
-		// Replace in backpack
-		BackpackItems[ItemIdx] = OldEquipped;
+		if (CanPlaceItemAt(ItemToEquip.GridX, ItemToEquip.GridY, OldEquipped.Width, OldEquipped.Height, ItemToEquip.ItemId))
+		{
+			OldEquipped.GridX = ItemToEquip.GridX;
+			OldEquipped.GridY = ItemToEquip.GridY;
+			BackpackItems[ItemIdx] = OldEquipped;
+		}
+		else
+		{
+			// Remove ItemToEquip first, then find a valid spot for OldEquipped (including rotated)
+			BackpackItems.RemoveAt(ItemIdx);
+			int32 FreeX = -1;
+			int32 FreeY = -1;
+			bool bRotated = false;
+			if (FindFreeSpaceWithRotation(OldEquipped.Width, OldEquipped.Height, FreeX, FreeY, bRotated))
+			{
+				if (bRotated)
+				{
+					Swap(OldEquipped.Width, OldEquipped.Height);
+					OldEquipped.bIsRotated = !OldEquipped.bIsRotated;
+				}
+				OldEquipped.GridX = FreeX;
+				OldEquipped.GridY = FreeY;
+				BackpackItems.Add(OldEquipped);
+			}
+			else
+			{
+				// Restore ItemToEquip and abort swap if backpack has no room for the larger weapon
+				BackpackItems.Insert(ItemToEquip, ItemIdx);
+				return false;
+			}
+		}
 	}
 	else
 	{
@@ -257,16 +377,20 @@ bool UTarkovInventoryComponent::UnequipWeaponToBackpack(int32 TargetX, int32 Tar
 		return false;
 	}
 
+	bool bRotatedPlacement = false;
 	if (TargetX < 0 || TargetY < 0)
 	{
-		if (!FindFreeSpace(EquippedWeaponItem.Width, EquippedWeaponItem.Height, TargetX, TargetY))
+		if (!FindFreeSpaceWithRotation(EquippedWeaponItem.Width, EquippedWeaponItem.Height, TargetX, TargetY, bRotatedPlacement))
 		{
 			return false;
 		}
 	}
 
+	const int32 PlaceW = bRotatedPlacement ? EquippedWeaponItem.Height : EquippedWeaponItem.Width;
+	const int32 PlaceH = bRotatedPlacement ? EquippedWeaponItem.Width : EquippedWeaponItem.Height;
+
 	// Check if target fits in backpack
-	if (!CanPlaceItemAt(TargetX, TargetY, EquippedWeaponItem.Width, EquippedWeaponItem.Height))
+	if (!CanPlaceItemAt(TargetX, TargetY, PlaceW, PlaceH))
 	{
 		return false;
 	}
@@ -277,6 +401,12 @@ bool UTarkovInventoryComponent::UnequipWeaponToBackpack(int32 TargetX, int32 Tar
 	}
 
 	FInventoryGridItem ItemToAdd = EquippedWeaponItem;
+	ItemToAdd.Width = PlaceW;
+	ItemToAdd.Height = PlaceH;
+	if (bRotatedPlacement)
+	{
+		ItemToAdd.bIsRotated = !ItemToAdd.bIsRotated;
+	}
 	ItemToAdd.GridX = TargetX;
 	ItemToAdd.GridY = TargetY;
 
@@ -310,6 +440,24 @@ bool UTarkovInventoryComponent::FindFreeSpace(int32 W, int32 H, int32& OutX, int
 		}
 	}
 
+	return false;
+}
+
+bool UTarkovInventoryComponent::FindFreeSpaceWithRotation(int32 W, int32 H, int32& OutX, int32& OutY, bool& OutRotated) const
+{
+	if (FindFreeSpace(W, H, OutX, OutY))
+	{
+		OutRotated = false;
+		return true;
+	}
+
+	if (W != H && FindFreeSpace(H, W, OutX, OutY))
+	{
+		OutRotated = true;
+		return true;
+	}
+
+	OutRotated = false;
 	return false;
 }
 

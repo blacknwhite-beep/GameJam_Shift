@@ -31,6 +31,8 @@ void UInterWorldBridge::ResolveItemMetadata(FName ItemID, FString& OutDisplayNam
 	{
 		OutDisplayName = TEXT("Medkit");
 		OutMaxStack = 1;
+		OutWidth = 1;
+		OutHeight = 2;
 	}
 	else
 	{
@@ -78,12 +80,13 @@ bool UInterWorldBridge::DepositHarvestToInventory(AActor* Player, FName ItemID, 
 		}
 	}
 
-	// 2. For remaining quantity, place new 1x1 items in the grid
+	// 2. For remaining quantity, place new items in the grid (with rotation fallback for multi-cell items like 1x2 Medkits)
 	while (RemainingToDeposit > 0)
 	{
 		int32 TargetX = -1;
 		int32 TargetY = -1;
-		if (!Inventory->FindFreeSpace(ItemWidth, ItemHeight, TargetX, TargetY))
+		bool bRotated = false;
+		if (!Inventory->FindFreeSpaceWithRotation(ItemWidth, ItemHeight, TargetX, TargetY, bRotated))
 		{
 			if (GEngine)
 			{
@@ -103,11 +106,17 @@ bool UInterWorldBridge::DepositHarvestToInventory(AActor* Player, FName ItemID, 
 		FInventoryGridItem NewItem;
 		NewItem.ItemId = FGuid::NewGuid();
 		NewItem.ItemName = DisplayName;
-		NewItem.Width = ItemWidth;
-		NewItem.Height = ItemHeight;
+		NewItem.Width = bRotated ? ItemHeight : ItemWidth;
+		NewItem.Height = bRotated ? ItemWidth : ItemHeight;
+		NewItem.bIsRotated = bRotated;
 		NewItem.AmmoCount = AmountForThisTile;
 		NewItem.GridX = TargetX;
 		NewItem.GridY = TargetY;
+		int32 DummyW = NewItem.Width;
+		int32 DummyH = NewItem.Height;
+		UTexture2D* IconTex = nullptr;
+		UTarkovInventoryComponent::ResolveItemVisuals(DisplayName, DummyW, DummyH, IconTex);
+		NewItem.Icon = IconTex;
 
 		Inventory->AddItemAt(NewItem, TargetX, TargetY);
 		RemainingToDeposit -= AmountForThisTile;
